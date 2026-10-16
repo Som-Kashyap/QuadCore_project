@@ -136,6 +136,18 @@ async function handleSubmit(event) {
             </div>
           </div>
 
+          <label htmlFor="electricityBill">
+  Electricity bill
+</label>
+
+<input
+  id="electricityBill"
+  name="electricityBill"
+  type="file"
+  accept=".pdf,.png,.jpg,.jpeg"
+  required
+/>
+
           <button type="submit" disabled={isSubmitting}>
   {isSubmitting ? "Saving..." : "Save company details →"}
 </button>
