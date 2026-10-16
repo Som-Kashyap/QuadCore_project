@@ -1,9 +1,14 @@
 [project]
-name = "QuadCore Project backend"
+name = "project"
 version = "0.1.0"
 description = "Reducing Carbon Emissions"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.20.0",
+    "asyncpg>=0.32.0",
     "fastapi[standard]>=0.143.2",
+    "greenlet>=3.5.6",
+    "pydantic>=2.14.1",
+    "sqlalchemy>=2.1.4",
 ]
