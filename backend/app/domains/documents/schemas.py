@@ -1,6 +1,7 @@
 from datetime import datetime
 from enum import Enum
 from typing import Optional, Any
+from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict
 
 from app.core.schemas import TimestampResponse
@@ -31,7 +32,7 @@ class FileFormat(str, Enum):
 # ==============================================================================
 
 class UploadedDocumentBase(BaseModel):
-    reporting_period_id: int = Field(..., description="FK to parent ReportingPeriod")
+    reporting_period_id: UUID = Field(..., description="FK to parent ReportingPeriod")
     category: DocumentCategory
     file_format: FileFormat
     mime_type: str = Field(..., max_length=100)
@@ -50,6 +51,6 @@ class UploadedDocumentCreate(UploadedDocumentBase):
 class UploadedDocumentResponse(UploadedDocumentBase, TimestampResponse):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     extraction_raw_json: Optional[dict[str, Any]] = None
     uploaded_at: datetime

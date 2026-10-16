@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from enum import Enum
 from typing import Optional, Any
+from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict
 
 from app.core.schemas import TimestampResponse
@@ -28,7 +29,7 @@ class ReportType(str, Enum):
 # ==============================================================================
 
 class ReportingPeriodBase(BaseModel):
-    firm_id: int = Field(..., description="FK to the owning Firm")
+    firm_id: UUID = Field(..., description="FK to the owning Firm")
     start_date: date = Field(..., description="Period start date (inclusive)")
     end_date: date = Field(..., description="Period end date (inclusive)")
     production_tonnes: Optional[float] = Field(
@@ -49,7 +50,7 @@ class ReportingPeriodUpdate(BaseModel):
 class ReportingPeriodResponse(ReportingPeriodBase, TimestampResponse):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
 
     # Calculated emission totals (populated by the engine after a run)
     total_scope1_tco2e: Optional[float] = None
@@ -65,7 +66,7 @@ class ReportingPeriodResponse(ReportingPeriodBase, TimestampResponse):
 # ==============================================================================
 
 class GeneratedReportBase(BaseModel):
-    reporting_period_id: int = Field(..., description="FK to the parent ReportingPeriod")
+    reporting_period_id: UUID = Field(..., description="FK to the parent ReportingPeriod")
     report_title: str = Field(..., max_length=255)
     report_type: ReportType
     export_format: ReportFormat
@@ -84,5 +85,32 @@ class GeneratedReportCreate(GeneratedReportBase):
 class GeneratedReportResponse(GeneratedReportBase, TimestampResponse):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     generated_at: datetime
+
+
+# ==============================================================================
+# CALCULATION ENGINE (response for POST /reports/calculate/{period_id})
+# ==============================================================================
+
+class CalculationResultResponse(BaseModel):
+    period_id: UUID
+    total_scope1_tco2e: float = Field(..., description="Total Scope 1 emissions in tCO₂e")
+    total_scope2_tco2e: float = Field(..., description="Total Scope 2 emissions in tCO₂e")
+    total_precursor_tco2e: float = Field(..., description="Total precursor (Scope 3 upstream) in tCO₂e")
+    total_emissions_tco2e: float = Field(..., description="Grand total emissions in tCO₂e")
+    specific_emissions_tco2e_per_tonne: Optional[float] = Field(
+        None, description="Emission intensity per tonne of product"
+    )
+    recommendations: list[str] = Field(
+        default_factory=list, description="Renewable / efficiency recommendations from the pathways engine"
+    )
+
+
+# ==============================================================================
+# REPORT ARCHIVE (response for POST /reports/export/{period_id})
+# ==============================================================================
+
+class ReportArchiveResponse(GeneratedReportResponse):
+    """Wraps GeneratedReportResponse — returned when a report is compiled and archived."""
+    pass

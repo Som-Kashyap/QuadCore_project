@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional, Any
+from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict
 
 from app.core.schemas import TimestampResponse
@@ -40,5 +41,17 @@ class EvidenceItemUpdate(BaseModel):
 class EvidenceItemResponse(EvidenceItemBase, TimestampResponse):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     retrieved_at: datetime
+
+
+# ==============================================================================
+# EVIDENCE SYNC (response for POST /evidence/sync)
+# ==============================================================================
+
+class EvidenceSyncResponse(BaseModel):
+    state: str = Field(..., description="State for which evidence was synced")
+    items_synced: int = Field(..., description="Number of evidence items created or updated")
+    items: list[EvidenceItemResponse] = Field(
+        default_factory=list, description="Newly fetched or updated evidence items"
+    )

@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict
 
 from app.core.schemas import TimestampResponse
@@ -60,4 +61,4 @@ class FirmUpdate(BaseModel):
 class FirmResponse(FirmBase, TimestampResponse):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID

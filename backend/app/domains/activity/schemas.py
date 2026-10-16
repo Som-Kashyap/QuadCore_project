@@ -1,5 +1,6 @@
 from enum import Enum
 from typing import Optional
+from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict
 
 from app.core.schemas import TimestampResponse
@@ -35,8 +36,8 @@ class MaterialType(str, Enum):
 # ==============================================================================
 
 class ElectricityRecordBase(BaseModel):
-    reporting_period_id: int = Field(..., description="FK to parent ReportingPeriod")
-    source_document_id: Optional[int] = Field(
+    reporting_period_id: UUID = Field(..., description="FK to parent ReportingPeriod")
+    source_document_id: Optional[UUID] = Field(
         None, description="FK to the UploadedDocument this was extracted from"
     )
     consumed_kwh: float = Field(..., gt=0, description="Total electricity consumed in kWh")
@@ -62,7 +63,7 @@ class ElectricityRecordUpdate(BaseModel):
 class ElectricityRecordResponse(ElectricityRecordBase, TimestampResponse):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     status: VerificationStatus
 
 
@@ -71,8 +72,8 @@ class ElectricityRecordResponse(ElectricityRecordBase, TimestampResponse):
 # ==============================================================================
 
 class FuelRecordBase(BaseModel):
-    reporting_period_id: int = Field(..., description="FK to parent ReportingPeriod")
-    source_document_id: Optional[int] = Field(
+    reporting_period_id: UUID = Field(..., description="FK to parent ReportingPeriod")
+    source_document_id: Optional[UUID] = Field(
         None, description="FK to the UploadedDocument this was extracted from"
     )
     fuel_type: FuelType
@@ -94,7 +95,7 @@ class FuelRecordUpdate(BaseModel):
 class FuelRecordResponse(FuelRecordBase, TimestampResponse):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     status: VerificationStatus
 
 
@@ -103,8 +104,8 @@ class FuelRecordResponse(FuelRecordBase, TimestampResponse):
 # ==============================================================================
 
 class MaterialRecordBase(BaseModel):
-    reporting_period_id: int = Field(..., description="FK to parent ReportingPeriod")
-    source_document_id: Optional[int] = Field(
+    reporting_period_id: UUID = Field(..., description="FK to parent ReportingPeriod")
+    source_document_id: Optional[UUID] = Field(
         None, description="FK to the UploadedDocument this was extracted from"
     )
     material_type: MaterialType
@@ -130,5 +131,5 @@ class MaterialRecordUpdate(BaseModel):
 class MaterialRecordResponse(MaterialRecordBase, TimestampResponse):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     status: VerificationStatus

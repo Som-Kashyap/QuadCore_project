@@ -10,6 +10,13 @@ from app.core.config import get_settings
 from app.core.database import dispose_engine
 from app.core.logging import setup_logging
 
+from app.domains.firm.router import router as firm_router
+from app.domains.reporting.router import router as reporting_router
+from app.domains.documents.router import router as documents_router
+from app.domains.activity.router import router as activity_router
+from app.domains.evidence.router import router as evidence_router
+from app.domains.engine.router import router as engine_router
+
 settings = get_settings()
 
 
@@ -77,3 +84,12 @@ app.add_middleware(
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+
+# Domain Routers
+app.include_router(firm_router)
+app.include_router(reporting_router)
+app.include_router(documents_router)
+app.include_router(activity_router)
+app.include_router(evidence_router)
+app.include_router(engine_router)
