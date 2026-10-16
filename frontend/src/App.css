@@ -170,3 +170,13 @@ button:hover {
   font-weight: bold;
   letter-spacing: 1.5px;
 }
+
+.status-message {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid #b8ddc4;
+  border-radius: 8px;
+  background: #eff8f1;
+  color: #176b45;
+  font-size: 14px;
+}

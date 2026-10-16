@@ -11,6 +11,10 @@ function App() {
     productionTonnes: "",
   });
 
+  const [message, setMessage] = useState("");
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   function handleChange(event) {
     const { name, value } = event.target;
 
@@ -20,12 +24,27 @@ function App() {
     }));
   }
 
-  function handleSubmit(event) {
-    event.preventDefault();
+ 
+async function handleSubmit(event) {
+  event.preventDefault();
 
-    console.log("Company details:", form);
-    alert("Company details captured! API integration comes next.");
+  setIsSubmitting(true);
+  setMessage("");
+
+  try {
+    console.log("Company details to send:", form);
+
+    // Temporary pause to simulate a server request.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    setMessage("Company details processed successfully!");
+  } catch (error) {
+    setMessage("Something went wrong. Please try again.");
+  } finally {
+    setIsSubmitting(false);
   }
+}
+
 
   return (
     <main className="app">
@@ -117,8 +136,16 @@ function App() {
             </div>
           </div>
 
-          <button type="submit">Save company details →</button>
+          <button type="submit" disabled={isSubmitting}>
+  {isSubmitting ? "Saving..." : "Save company details →"}
+</button>
         </form>
+
+        {message && (
+  <p className="status-message" role="status">
+    {message}
+  </p>
+)}
 
         <div className="company-preview">
   <p className="eyebrow">LIVE PREVIEW</p>
