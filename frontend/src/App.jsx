@@ -15,6 +15,8 @@ function App() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [electricityBill, setElectricityBill] = useState(null);
+
   function handleChange(event) {
     const { name, value } = event.target;
 
@@ -44,6 +46,29 @@ async function handleSubmit(event) {
     setIsSubmitting(false);
   }
 }
+
+
+async function uploadDocument(file) {
+  if (!file) {
+    setMessage("Please select a document first.");
+    return;
+  }
+
+  const data = new FormData();
+  data.append("file", file);
+
+  try {
+    setMessage("Ready to upload: " + file.name);
+
+    // The actual fetch request goes here once
+    // your teammate confirms the upload endpoint.
+    console.log("File ready for upload:", file.name);
+    console.log("FormData prepared:", data);
+  } catch (error) {
+    setMessage("Could not prepare the document.");
+  }
+}
+
 
 
   return (
@@ -140,13 +165,34 @@ async function handleSubmit(event) {
   Electricity bill
 </label>
 
+
+{/* <label htmlFor="electricityBill">Electricity bill</label> */}
+
 <input
   id="electricityBill"
   name="electricityBill"
   type="file"
   accept=".pdf,.png,.jpg,.jpeg"
   required
+  onChange={(event) => {
+  const file = event.target.files[0] || null;
+  setElectricityBill(file);
+
+  if (file) {
+    uploadDocument(file);
+  }
+}}
 />
+
+{electricityBill && (
+  <div className="file-preview">
+    <span>📄 {electricityBill.name}</span>
+    <small>
+      {(electricityBill.size / 1024).toFixed(1)} KB
+    </small>
+  </div>
+)}
+
 
           <button type="submit" disabled={isSubmitting}>
   {isSubmitting ? "Saving..." : "Save company details →"}

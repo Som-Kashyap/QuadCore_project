@@ -180,3 +180,21 @@ button:hover {
   color: #176b45;
   font-size: 14px;
 }
+
+.file-preview {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 12px;
+  background: #f2f8f3;
+  border: 1px solid #d8e7dc;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.file-preview small {
+  flex-shrink: 0;
+  color: #68736a;
+}
