@@ -36,7 +36,8 @@ function App() {
 
       <section className="form-card">
         <p className="eyebrow">GET STARTED</p>
-        <h1>Set up your company</h1>
+        <h1>Welcome to CarbonLedger</h1>
+        <p>Let's make your emissions measurable.</p>
         <p className="subtitle">
           Tell us about your operations to start tracking
           product emissions.
@@ -52,6 +53,10 @@ function App() {
             placeholder="e.g. ABC Manufacturing"
             required
           />
+
+          <p className="char-count">
+  {form.companyName.length} characters
+</p>
 
           <label htmlFor="sector">Industry sector</label>
           <select
@@ -114,9 +119,32 @@ function App() {
 
           <button type="submit">Save company details →</button>
         </form>
+
+        <div className="company-preview">
+  <p className="eyebrow">LIVE PREVIEW</p>
+
+  <h2>
+    {form.companyName || "Your company name"}
+  </h2>
+
+  <p>
+    {form.product || "Your product"} · Reporting year{" "}
+    {form.reportingYear}
+  </p>
+
+  <p>
+    Industry: {form.sector || "Not selected"}
+  </p>
+</div>
+
       </section>
     </main>
+
   );
+
+  
 }
+
+
 
 export default App;
