@@ -2,234 +2,687 @@
 import { useState } from "react";
 import "./App.css";
 
+const initialFactory = {
+  name: "",
+  state: "",
+  roof_area_sqm: "",
+  contracted_demand_mva: "",
+  tariff_category: "",
+};
+
+const initialPeriod = {
+  start_date: "",
+  end_date: "",
+  production_tonnes: "",
+};
+
 function App() {
-  const [form, setForm] = useState({
-    companyName: "",
-    sector: "",
-    product: "",
-    reportingYear: "2026",
-    productionTonnes: "",
-  });
-
-  const [message, setMessage] = useState("");
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
+  const [factory, setFactory] = useState(initialFactory);
+  const [period, setPeriod] = useState(initialPeriod);
   const [electricityBill, setElectricityBill] = useState(null);
 
-  function handleChange(event) {
+  const [documentFields, setDocumentFields] = useState({
+    supplier: "",
+    billingPeriod: "",
+    electricityKwh: "",
+    invoiceNumber: "",
+  });
+
+  const [documentStatus, setDocumentStatus] = useState("empty");
+  const [message, setMessage] = useState("");
+  const [activeStep, setActiveStep] = useState(1);
+
+  const [factorStatus, setFactorStatus] = useState("not_synced");
+  const [calculationStatus, setCalculationStatus] = useState("not_calculated");
+
+  function updateFactory(event) {
+    const { name, value } = event.target;
+    setFactory((prev) => ({ ...prev, [name]: value }));
+  }
+
+  function updatePeriod(event) {
+    const { name, value } = event.target;
+    setPeriod((prev) => ({ ...prev, [name]: value }));
+  }
+
+  function updateDocument(event) {
     const { name, value } = event.target;
 
-    setForm((previousForm) => ({
-      ...previousForm,
-      [name]: value,
-    }));
+    setDocumentFields((prev) => ({ ...prev, [name]: value }));
+    setDocumentStatus("pending");
+    setCalculationStatus("not_calculated");
   }
 
- 
-async function handleSubmit(event) {
-  event.preventDefault();
+  function handleFactorySubmit(event) {
+    event.preventDefault();
 
-  setIsSubmitting(true);
-  setMessage("");
-
-  try {
-    console.log("Company details to send:", form);
-
-    // Temporary pause to simulate a server request.
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    setMessage("Company details processed successfully!");
-  } catch (error) {
-    setMessage("Something went wrong. Please try again.");
-  } finally {
-    setIsSubmitting(false);
-  }
-}
-
-
-async function uploadDocument(file) {
-  if (!file) {
-    setMessage("Please select a document first.");
-    return;
+    setMessage(
+      "Factory details validated locally. Backend saving is not connected yet."
+    );
+    setActiveStep(2);
   }
 
-  const data = new FormData();
-  data.append("file", file);
+  function handlePeriodSubmit(event) {
+    event.preventDefault();
 
-  try {
-    setMessage("Ready to upload: " + file.name);
+    if (period.end_date < period.start_date) {
+      setMessage("The end date must be on or after the start date.");
+      return;
+    }
 
-    // The actual fetch request goes here once
-    // your teammate confirms the upload endpoint.
-    console.log("File ready for upload:", file.name);
-    console.log("FormData prepared:", data);
-  } catch (error) {
-    setMessage("Could not prepare the document.");
+    setMessage(
+      "Reporting period validated locally. Backend saving is not connected yet."
+    );
+    setActiveStep(3);
   }
-}
 
+  function handleFileChange(event) {
+    const file = event.target.files?.[0] || null;
 
+    setElectricityBill(file);
+    setDocumentStatus(file ? "pending" : "empty");
+    setDocumentFields({
+      supplier: "",
+      billingPeriod: "",
+      electricityKwh: "",
+      invoiceNumber: "",
+    });
+    setCalculationStatus("not_calculated");
+
+    if (file) {
+      setMessage(
+        `${file.name} selected. Actual upload and extraction require the backend API.`
+      );
+    }
+  }
+
+  function handleDocumentDecision(status) {
+    if (status === "confirmed") {
+      if (
+        !documentFields.electricityKwh ||
+        Number(documentFields.electricityKwh) <= 0
+      ) {
+        setMessage("Enter a valid electricity consumption before confirming.");
+        return;
+      }
+
+      if (!electricityBill) {
+        setMessage("Upload an electricity bill before confirming its details.");
+        return;
+      }
+    }
+
+    setDocumentStatus(status);
+    setCalculationStatus("not_calculated");
+
+    setMessage(
+      status === "confirmed"
+        ? "Details marked as confirmed locally. Backend verification is not connected yet."
+        : status === "flagged"
+          ? "Document flagged locally for review."
+          : "Document discarded from this screen."
+    );
+
+    if (status === "discarded") {
+      setElectricityBill(null);
+      setDocumentFields({
+        supplier: "",
+        billingPeriod: "",
+        electricityKwh: "",
+        invoiceNumber: "",
+      });
+    }
+  }
+
+  function handleSync() {
+    setFactorStatus("not_synced");
+    setMessage(
+      "Live evidence sync is not connected yet. No live emission factor has been retrieved."
+    );
+  }
+
+  function handleCalculate() {
+    if (!period.start_date || !period.end_date ||
+        !period.production_tonnes || Number(period.production_tonnes) <= 0) {
+      setMessage("Complete the reporting period and production details first.");
+      return;
+    }
+
+    if (documentStatus !== "confirmed") {
+      setMessage("Review and confirm the electricity bill details first.");
+      return;
+    }
+
+    setCalculationStatus("not_calculated");
+    setMessage(
+      "Calculation requires the backend API and a validated emission factor. No emissions result has been generated."
+    );
+  }
+
+  function handleExport() {
+    setMessage(
+      "Report export will be available once the backend report API is connected."
+    );
+  }
+
+  const steps = [
+    { number: 1, title: "Factory profile" },
+    { number: 2, title: "Reporting period" },
+    { number: 3, title: "Electricity evidence" },
+    { number: 4, title: "Results & report" },
+  ];
 
   return (
     <main className="app">
       <header className="topbar">
-        <h2>CarbonLedger</h2>
-        <span>Carbon intelligence for industry</span>
+        <a className="brand" href="#top">
+          <span className="brand-mark">C</span>
+          <span>CarbonLedger</span>
+        </a>
+        <span className="topbar-caption">
+          Carbon intelligence for industry
+        </span>
       </header>
 
-      <section className="form-card">
-        <p className="eyebrow">GET STARTED</p>
-        <h1>Welcome to CarbonLedger</h1>
-        <p>Let's make your emissions measurable.</p>
-        <p className="subtitle">
-          Tell us about your operations to start tracking
-          product emissions.
-        </p>
+      <section className="workspace" id="top">
+        <div className="intro">
+          <p className="eyebrow">INDUSTRIAL CARBON ACCOUNTING</p>
+          <h1>Make your emissions measurable.</h1>
+          <p className="subtitle">
+            Set up your factory, review your energy data and prepare an
+            emissions report.
+          </p>
+        </div>
 
-        <form onSubmit={handleSubmit}>
-          <label htmlFor="companyName">Company name</label>
-          <input
-            id="companyName"
-            name="companyName"
-            value={form.companyName}
-            onChange={handleChange}
-            placeholder="e.g. ABC Manufacturing"
-            required
-          />
-
-          <p className="char-count">
-  {form.companyName.length} characters
-</p>
-
-          <label htmlFor="sector">Industry sector</label>
-          <select
-            id="sector"
-            name="sector"
-            value={form.sector}
-            onChange={handleChange}
-            required
-          >
-            <option value="">Select a sector</option>
-            <option value="steel">Iron and steel</option>
-            <option value="aluminium">Aluminium</option>
-            <option value="cement">Cement</option>
-            <option value="fertilisers">Fertilisers</option>
-            <option value="other">Other</option>
-          </select>
-
-          <label htmlFor="product">Product being assessed</label>
-          <input
-            id="product"
-            name="product"
-            value={form.product}
-            onChange={handleChange}
-            placeholder="e.g. Steel sheets"
-            required
-          />
-
-          <div className="field-row">
-            <div>
-              <label htmlFor="reportingYear">Reporting year</label>
-              <select
-                id="reportingYear"
-                name="reportingYear"
-                value={form.reportingYear}
-                onChange={handleChange}
-              >
-                <option value="2024">2024</option>
-                <option value="2025">2025</option>
-                <option value="2026">2026</option>
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="productionTonnes">
-                Annual production (tonnes)
-              </label>
-              <input
-                id="productionTonnes"
-                name="productionTonnes"
-                type="number"
-                min="0.01"
-                step="any"
-                value={form.productionTonnes}
-                onChange={handleChange}
-                placeholder="e.g. 1200"
-                required
-              />
-            </div>
-          </div>
-
-          <label htmlFor="electricityBill">
-  Electricity bill
-</label>
-
-
-{/* <label htmlFor="electricityBill">Electricity bill</label> */}
-
-<input
-  id="electricityBill"
-  name="electricityBill"
-  type="file"
-  accept=".pdf,.png,.jpg,.jpeg"
-  required
-  onChange={(event) => {
-  const file = event.target.files[0] || null;
-  setElectricityBill(file);
-
-  if (file) {
-    uploadDocument(file);
-  }
-}}
-/>
-
-{electricityBill && (
-  <div className="file-preview">
-    <span>📄 {electricityBill.name}</span>
-    <small>
-      {(electricityBill.size / 1024).toFixed(1)} KB
-    </small>
-  </div>
-)}
-
-
-          <button type="submit" disabled={isSubmitting}>
-  {isSubmitting ? "Saving..." : "Save company details →"}
-</button>
-        </form>
+        <nav className="stepper" aria-label="Workflow steps">
+          {steps.map((step) => (
+            <button
+              type="button"
+              key={step.number}
+              className={`step ${activeStep === step.number ? "active" : ""}`}
+              onClick={() => setActiveStep(step.number)}
+            >
+              <span className="step-number">{step.number}</span>
+              <span>{step.title}</span>
+            </button>
+          ))}
+        </nav>
 
         {message && (
-  <p className="status-message" role="status">
-    {message}
-  </p>
-)}
+          <div className="status-message" role="status">
+            {message}
+          </div>
+        )}
 
-        <div className="company-preview">
-  <p className="eyebrow">LIVE PREVIEW</p>
+        <div className="main-grid">
+          <div className="main-column">
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">01 / FACTORY</p>
+                  <h2>Factory profile</h2>
+                  <p className="panel-description">
+                    Tell us where the factory operates and provide its
+                    basic electrical and physical specifications.
+                  </p>
+                </div>
+                <span className="section-icon">⌂</span>
+              </div>
 
-  <h2>
-    {form.companyName || "Your company name"}
-  </h2>
+              <form onSubmit={handleFactorySubmit}>
+                <div className="field">
+                  <label htmlFor="name">Factory / company name *</label>
+                  <input
+                    id="name"
+                    name="name"
+                    value={factory.name}
+                    onChange={updateFactory}
+                    placeholder="e.g. ABC Steel Works"
+                    maxLength={255}
+                    required
+                  />
+                  <span className="helper">
+                    {factory.name.length}/255 characters
+                  </span>
+                </div>
 
-  <p>
-    {form.product || "Your product"} · Reporting year{" "}
-    {form.reportingYear}
-  </p>
+                <div className="field">
+                  <label htmlFor="state">Factory state *</label>
+                  <input
+                    id="state"
+                    name="state"
+                    value={factory.state}
+                    onChange={updateFactory}
+                    placeholder="e.g. Haryana"
+                    required
+                  />
+                  <span className="helper">
+                    Used to identify relevant electricity-grid evidence.
+                  </span>
+                </div>
 
-  <p>
-    Industry: {form.sector || "Not selected"}
-  </p>
-</div>
+                <div className="field-row">
+                  <div className="field">
+                    <label htmlFor="roof_area_sqm">Roof area (m²)</label>
+                    <input
+                      id="roof_area_sqm"
+                      name="roof_area_sqm"
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={factory.roof_area_sqm}
+                      onChange={updateFactory}
+                      placeholder="Optional"
+                    />
+                  </div>
 
+                  <div className="field">
+                    <label htmlFor="contracted_demand_mva">
+                      Contracted demand (MVA)
+                    </label>
+                    <input
+                      id="contracted_demand_mva"
+                      name="contracted_demand_mva"
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={factory.contracted_demand_mva}
+                      onChange={updateFactory}
+                      placeholder="Optional"
+                    />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="tariff_category">
+                    Electricity tariff category
+                  </label>
+                  <input
+                    id="tariff_category"
+                    name="tariff_category"
+                    value={factory.tariff_category}
+                    onChange={updateFactory}
+                    placeholder="e.g. Industrial / HT"
+                  />
+                </div>
+
+                <button className="primary-button" type="submit">
+                  Save profile & continue →
+                </button>
+              </form>
+            </section>
+
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">02 / REPORTING</p>
+                  <h2>Reporting period</h2>
+                  <p className="panel-description">
+                    Define the period covered by this emissions assessment.
+                  </p>
+                </div>
+                <span className="section-icon">◷</span>
+              </div>
+
+              <form onSubmit={handlePeriodSubmit}>
+                <div className="field-row">
+                  <div className="field">
+                    <label htmlFor="start_date">Start date *</label>
+                    <input
+                      id="start_date"
+                      name="start_date"
+                      type="date"
+                      value={period.start_date}
+                      onChange={updatePeriod}
+                      required
+                    />
+                  </div>
+
+                  <div className="field">
+                    <label htmlFor="end_date">End date *</label>
+                    <input
+                      id="end_date"
+                      name="end_date"
+                      type="date"
+                      min={period.start_date || undefined}
+                      value={period.end_date}
+                      onChange={updatePeriod}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="production_tonnes">
+                    Production during this period (tonnes) *
+                  </label>
+                  <input
+                    id="production_tonnes"
+                    name="production_tonnes"
+                    type="number"
+                    min="0.01"
+                    step="any"
+                    value={period.production_tonnes}
+                    onChange={updatePeriod}
+                    placeholder="e.g. 250"
+                    required
+                  />
+                  <span className="helper">
+                    Used to calculate emissions per tonne, when supported
+                    by the calculation engine.
+                  </span>
+                </div>
+
+                <button className="primary-button" type="submit">
+                  Save reporting period →
+                </button>
+              </form>
+            </section>
+
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">03 / SOURCE DOCUMENT</p>
+                  <h2>Electricity bill</h2>
+                  <p className="panel-description">
+                    Upload a bill, then review its extracted activity data
+                    before confirming it.
+                  </p>
+                </div>
+                <span className="section-icon">↥</span>
+              </div>
+
+              <label className="upload-zone" htmlFor="electricityBill">
+                <span className="upload-icon">↑</span>
+                <strong>
+                  {electricityBill
+                    ? electricityBill.name
+                    : "Choose an electricity bill"}
+                </strong>
+                <span>
+                  PDF, PNG or JPEG · Select a file from your device
+                </span>
+                {electricityBill && (
+                  <span>
+                    {(electricityBill.size / 1024).toFixed(1)} KB
+                  </span>
+                )}
+                <input
+                  id="electricityBill"
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg"
+                  onChange={handleFileChange}
+                />
+              </label>
+
+              <p className="helper upload-helper">
+                The file is currently selected locally; uploading and AI
+                extraction are not connected yet.
+              </p>
+
+              <div className="verification-card">
+                <div className="panel-heading compact">
+                  <div>
+                    <p className="eyebrow">HUMAN VERIFICATION</p>
+                    <h3>Review bill details</h3>
+                  </div>
+                  <span className={`review-status ${documentStatus}`}>
+                    {documentStatus === "confirmed"
+                      ? "Confirmed locally"
+                      : documentStatus === "flagged"
+                        ? "Flagged"
+                        : documentStatus === "pending"
+                          ? "Review required"
+                          : "Awaiting document"}
+                  </span>
+                </div>
+
+                <p className="helper">
+                  Values below are entered manually, not AI-extracted.
+                </p>
+
+                <div className="field">
+                  <label htmlFor="supplier">Electricity supplier</label>
+                  <input
+                    id="supplier"
+                    name="supplier"
+                    value={documentFields.supplier}
+                    onChange={updateDocument}
+                    placeholder="Supplier name"
+                  />
+                </div>
+
+                <div className="field-row">
+                  <div className="field">
+                    <label htmlFor="billingPeriod">Billing month</label>
+                    <input
+                      id="billingPeriod"
+                      name="billingPeriod"
+                      type="month"
+                      value={documentFields.billingPeriod}
+                      onChange={updateDocument}
+                    />
+                  </div>
+
+                  <div className="field">
+                    <label htmlFor="invoiceNumber">Bill number</label>
+                    <input
+                      id="invoiceNumber"
+                      name="invoiceNumber"
+                      value={documentFields.invoiceNumber}
+                      onChange={updateDocument}
+                      placeholder="Optional"
+                    />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="electricityKwh">
+                    Electricity consumed (kWh) *
+                  </label>
+                  <input
+                    id="electricityKwh"
+                    name="electricityKwh"
+                    type="number"
+                    min="0.01"
+                    step="any"
+                    value={documentFields.electricityKwh}
+                    onChange={updateDocument}
+                    placeholder="e.g. 12500"
+                  />
+                </div>
+
+                <div className="button-row">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={!electricityBill}
+                    onClick={() => handleDocumentDecision("confirmed")}
+                  >
+                    Confirm details
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={!electricityBill}
+                    onClick={() => handleDocumentDecision("flagged")}
+                  >
+                    Flag
+                  </button>
+                  <button
+                    type="button"
+                    className="text-button"
+                    disabled={!electricityBill}
+                    onClick={() => handleDocumentDecision("discarded")}
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">04 / CALCULATION</p>
+                  <h2>Emissions assessment</h2>
+                  <p className="panel-description">
+                    Retrieve evidence before calculating the electricity
+                    footprint.
+                  </p>
+                </div>
+                <span className="section-icon">ϟ</span>
+              </div>
+
+              <div className="action-card">
+                <div>
+                  <strong>Grid emission factor</strong>
+                  <p>
+                    Retrieve the applicable factor and its source through
+                    the backend evidence service.
+                  </p>
+                </div>
+                <span className="review-status">
+                  {factorStatus === "synced"
+                    ? "Synced"
+                    : "Not connected"}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                className="secondary-button full-button"
+                onClick={handleSync}
+              >
+                Sync live evidence
+              </button>
+
+              <div className="results-placeholder">
+                <span className="results-symbol">↗</span>
+                <h3>
+                  {calculationStatus === "calculated"
+                    ? "Calculation complete"
+                    : "Your results will appear here"}
+                </h3>
+                <p>
+                  No emissions estimate is shown until the backend returns
+                  a calculation based on validated activity data and an
+                  applicable emission factor.
+                </p>
+              </div>
+
+              <div className="button-row">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={handleCalculate}
+                >
+                  Calculate emissions
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={handleExport}
+                >
+                  Export report
+                </button>
+              </div>
+            </section>
+          </div>
+
+          <aside className="side-column">
+            <section className="panel preview-panel">
+              <p className="eyebrow">LIVE PREVIEW</p>
+              <h2>{factory.name || "Your factory"}</h2>
+              <p className="preview-location">
+                {factory.state || "Factory location not provided"}
+              </p>
+
+              <div className="preview-divider" />
+
+              <div className="preview-item">
+                <span>Reporting period</span>
+                <strong>
+                  {period.start_date && period.end_date
+                    ? `${period.start_date} — ${period.end_date}`
+                    : "Not set"}
+                </strong>
+              </div>
+
+              <div className="preview-item">
+                <span>Production</span>
+                <strong>
+                  {period.production_tonnes
+                    ? `${period.production_tonnes} tonnes`
+                    : "Not provided"}
+                </strong>
+              </div>
+
+              <div className="preview-item">
+                <span>Electricity usage</span>
+                <strong>
+                  {documentFields.electricityKwh
+                    ? `${documentFields.electricityKwh} kWh`
+                    : "Awaiting data"}
+                </strong>
+              </div>
+
+              <div className="preview-item">
+                <span>Document review</span>
+                <strong>
+                  {documentStatus === "confirmed"
+                    ? "Confirmed locally"
+                    : "Pending"}
+                </strong>
+              </div>
+
+              <div className="preview-divider" />
+
+              <p className="helper">
+                Preview only. These values have not been saved to the
+                backend.
+              </p>
+            </section>
+
+            <section className="panel checklist-panel">
+              <p className="eyebrow">WORKFLOW CHECKLIST</p>
+              <h3>Before calculating</h3>
+              {[
+                ["Factory details", Boolean(factory.name && factory.state)],
+                [
+                  "Reporting period",
+                  Boolean(
+                    period.start_date &&
+                    period.end_date &&
+                    period.end_date >= period.start_date &&
+                    Number(period.production_tonnes) > 0
+                  ),
+                ],
+                ["Bill selected", Boolean(electricityBill)],
+                ["Bill confirmed", documentStatus === "confirmed"],
+              ].map(([label, complete]) => (
+                <div className="check-item" key={label}>
+                  <span className={complete ? "check done" : "check"}>
+                    {complete ? "✓" : "·"}
+                  </span>
+                  <span>{label}</span>
+                </div>
+              ))}
+              <p className="helper checklist-note">
+                Completing these items does not mean the backend has saved
+                or calculated anything.
+              </p>
+            </section>
+          </aside>
+        </div>
+
+        <footer className="footer">
+          <span>CarbonLedger</span>
+          <span>Industrial emissions reporting · MVP</span>
+        </footer>
       </section>
     </main>
-
   );
-
-  
 }
-
-
 
 export default App;
