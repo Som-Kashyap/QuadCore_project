@@ -94,7 +94,8 @@ class GeneratedReportResponse(GeneratedReportBase, TimestampResponse):
 # ==============================================================================
 
 class CalculationResultResponse(BaseModel):
-    period_id: UUID
+    # int: matches ReportingPeriod.id (Integer PK in models and migration)
+    period_id: int
     total_scope1_tco2e: float = Field(..., description="Total Scope 1 emissions in tCO₂e")
     total_scope2_tco2e: float = Field(..., description="Total Scope 2 emissions in tCO₂e")
     total_precursor_tco2e: float = Field(..., description="Total precursor (Scope 3 upstream) in tCO₂e")
