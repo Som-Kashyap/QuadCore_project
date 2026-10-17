@@ -33,6 +33,7 @@ from app.domains.reporting.models import ReportingPeriod, GeneratedReport
 from app.domains.documents.models import UploadedDocument
 from app.domains.activity.models import ElectricityRecord, FuelRecord, MaterialRecord
 from app.domains.evidence.models import EvidenceItem
+from app.domains.auth.models import User
 
 target_metadata = Base.metadata
 

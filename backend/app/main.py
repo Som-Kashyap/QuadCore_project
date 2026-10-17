@@ -9,6 +9,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.database import dispose_engine
 from app.core.logging import setup_logging
+from sqlalchemy.orm import configure_mappers
+
+# Ensure all SQLAlchemy models are registered in Base.metadata for cross-domain relationships
+from app.domains.auth.models import User  # noqa: F401
+from app.domains.firm.models import Firm  # noqa: F401
+from app.domains.reporting.models import ReportingPeriod, GeneratedReport  # noqa: F401
+from app.domains.documents.models import UploadedDocument  # noqa: F401
+from app.domains.activity.models import ElectricityRecord, FuelRecord, MaterialRecord  # noqa: F401
+from app.domains.evidence.models import EvidenceItem  # noqa: F401
 
 from app.domains.firm.router import router as firm_router
 from app.domains.reporting.router import router as reporting_router
@@ -16,6 +25,7 @@ from app.domains.documents.router import router as documents_router
 from app.domains.activity.router import router as activity_router
 from app.domains.evidence.router import router as evidence_router
 from app.domains.engine.router import router as engine_router
+from app.domains.auth.router import router as auth_router
 
 settings = get_settings()
 
@@ -26,10 +36,15 @@ async def lifespan(app: FastAPI):
     setup_logging(log_level=settings.LOG_LEVEL)
     logger = logging.getLogger("app.main")
     logger.info("QuadCore API starting up with log level: %s", settings.LOG_LEVEL)
+
+    # Initialize and validate all SQLAlchemy model mappers
+    configure_mappers()
+
     yield
     # Shutdown: cleanly close database connection pool
     logger.info("QuadCore API shutting down...")
     await dispose_engine()
+
 
 
 app = FastAPI(
@@ -87,6 +102,7 @@ async def health_check():
 
 
 # Domain Routers
+app.include_router(auth_router)
 app.include_router(firm_router)
 app.include_router(reporting_router)
 app.include_router(documents_router)

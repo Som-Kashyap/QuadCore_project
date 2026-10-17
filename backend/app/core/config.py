@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     POSTGRES_DB : str
     LOG_LEVEL : str = "INFO"
 
+    # JWT settings
+    JWT_SECRET_KEY : str
+    JWT_ALGORITHM : str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES : int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS : int = 7
+
     @property
     def DATABASE_URL(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}?ssl=require"
