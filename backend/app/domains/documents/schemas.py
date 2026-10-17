@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Any
+from typing import Optional, Any, Union
 from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -25,6 +25,7 @@ class FileFormat(str, Enum):
     JPEG = "jpeg"
     CSV = "csv"
     XLSX = "xlsx"
+    DOCX = "docx"
 
 
 # ==============================================================================
@@ -32,19 +33,19 @@ class FileFormat(str, Enum):
 # ==============================================================================
 
 class UploadedDocumentBase(BaseModel):
-    reporting_period_id: UUID = Field(..., description="FK to parent ReportingPeriod")
+    reporting_period_id: Union[int, UUID] = Field(..., description="FK to parent ReportingPeriod")
     category: DocumentCategory
     file_format: FileFormat
     mime_type: str = Field(..., max_length=100)
     original_filename: str = Field(..., max_length=255)
-    storage_path: str = Field(..., description="S3 URI or local storage path")
+    storage_path: str = Field(..., description="Local storage path or URI")
     file_size_bytes: int = Field(..., gt=0)
     sha256_hash: str = Field(..., min_length=64, max_length=64, description="SHA-256 hex digest of the file")
 
 
 class UploadedDocumentCreate(UploadedDocumentBase):
     extraction_raw_json: Optional[dict[str, Any]] = Field(
-        None, description="Raw JSON payload from the Vision LLM extraction pass"
+        None, description="Raw JSON payload from the Vision/LLM extraction pass"
     )
 
 

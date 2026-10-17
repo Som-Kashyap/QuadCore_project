@@ -36,5 +36,6 @@ class User(Base):
 
     # One user can own many firms
     firms: Mapped[List["Firm"]] = relationship(
-        back_populates="owner", cascade="all, delete-orphan"
+        back_populates="owner", cascade="all, delete-orphan", lazy="selectin"
     )
+
