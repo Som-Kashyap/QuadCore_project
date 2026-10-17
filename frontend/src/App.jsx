@@ -2,6 +2,8 @@
 import { useState } from "react";
 import "./App.css";
 
+import { createFactory } from "./api";
+
 const initialFactory = {
   name: "",
   state: "",
@@ -53,14 +55,22 @@ function App() {
     setCalculationStatus("not_calculated");
   }
 
-  function handleFactorySubmit(event) {
-    event.preventDefault();
+ async function handleFactorySubmit(event) {
+  event.preventDefault();
+  setMessage("Saving factory profile...");
 
-    setMessage(
-      "Factory details validated locally. Backend saving is not connected yet."
-    );
+  try {
+    const savedFactory = await createFactory(factory);
+
+    // Retain the server-generated UUID for later API calls.
+    sessionStorage.setItem("factory_id", savedFactory.id);
+
+    setMessage(`Factory "${savedFactory.name}" saved successfully.`);
     setActiveStep(2);
+  } catch (error) {
+    setMessage(`Could not save factory: ${error.message}`);
   }
+}
 
   function handlePeriodSubmit(event) {
     event.preventDefault();
