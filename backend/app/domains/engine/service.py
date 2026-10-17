@@ -102,7 +102,27 @@ async def calculate_period_footprint(
         if is_usable(r):
             materials_tonnes[r.material_type.value] += r.quantity_tonnes
 
-    factors = custom_factors or DEFAULT_EMISSION_FACTORS
+    # 3. Determine emission factors (priority: custom -> synced EvidenceItem -> CEA defaults)
+    factors = custom_factors
+    if factors is None:
+        from app.domains.evidence.models import EvidenceItem
+
+        ev_stmt = select(EvidenceItem).where(EvidenceItem.category == "grid_emission_factor")
+        ev_res = await db.execute(ev_stmt)
+        ev_item = ev_res.scalar_one_or_none()
+
+        # Convert tCO2/MWh to tCO2e/kWh (1 MWh = 1000 kWh)
+        grid_factor = (
+            (ev_item.value / 1000.0)
+            if (ev_item and ev_item.value > 0 and "mwh" in ev_item.unit.lower())
+            else (ev_item.value if (ev_item and ev_item.value > 0 and "kwh" in ev_item.unit.lower()) else DEFAULT_EMISSION_FACTORS.electricity_tco2e_per_kwh)
+        )
+
+        factors = EmissionFactors(
+            electricity_tco2e_per_kwh=grid_factor,
+            fuel_tco2e_per_litre=DEFAULT_EMISSION_FACTORS.fuel_tco2e_per_litre,
+            material_tco2e_per_tonne=DEFAULT_EMISSION_FACTORS.material_tco2e_per_tonne,
+        )
 
     # 3. Deterministic calculation
     try:

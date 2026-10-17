@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Optional, Any
+from typing import Any, Optional, Union
 from uuid import UUID
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.schemas import TimestampResponse
 
@@ -41,7 +41,7 @@ class EvidenceItemUpdate(BaseModel):
 class EvidenceItemResponse(EvidenceItemBase, TimestampResponse):
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
+    id: Union[int, UUID]
     retrieved_at: datetime
 
 
@@ -50,8 +50,7 @@ class EvidenceItemResponse(EvidenceItemBase, TimestampResponse):
 # ==============================================================================
 
 class EvidenceSyncResponse(BaseModel):
-    state: str = Field(..., description="State for which evidence was synced")
-    items_synced: int = Field(..., description="Number of evidence items created or updated")
-    items: list[EvidenceItemResponse] = Field(
-        default_factory=list, description="Newly fetched or updated evidence items"
-    )
+    category: str = Field(..., description="Evidence category synced")
+    identifier: str = Field(..., description="Identifier slug")
+    evidence_item: EvidenceItemResponse = Field(..., description="Persisted evidence item")
+    synced_from_tinyfish: bool = Field(..., description="Whether live TinyFish agent was used or fallback")

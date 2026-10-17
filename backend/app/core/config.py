@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     GROQ_API_KEY : str | None = None
     DOCUMENTS_STORAGE_PATH : str = "storage/documents"
 
+    # TinyFish Web Agent settings
+    TINYFISH_API_KEY : str | None = None
+    TINYFISH_AGENT_URL : str = "https://agent.tinyfish.ai/v1/automation/run"
+    TINYFISH_SEARCH_URL : str = "https://api.search.tinyfish.ai"
+    TINYFISH_API_URL : str = "https://agent.tinyfish.ai/v1/automation/run"
+
 
     @property
     def DATABASE_URL(self) -> str:
