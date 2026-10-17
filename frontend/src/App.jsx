@@ -1,6 +1,12 @@
-
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "./App.css";
+import AuthPanel from "./AuthPanel";
+import {
+  getAccessToken,
+  getCurrentUser,
+  clearSession,
+  createFactory,
+} from "./api";
 
 const initialFactory = {
   name: "",
@@ -17,6 +23,36 @@ const initialPeriod = {
 };
 
 function App() {
+
+  const [user, setUser] = useState(null);
+const [authChecking, setAuthChecking] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function restoreSession() {
+      if (!getAccessToken()) {
+        if (!cancelled) setAuthChecking(false);
+        return;
+      }
+
+      try {
+        const currentUser = await getCurrentUser();
+        if (!cancelled) setUser(currentUser);
+      } catch (error) {
+        clearSession();
+        if (!cancelled) setUser(null);
+      } finally {
+        if (!cancelled) setAuthChecking(false);
+      }
+    }
+
+    restoreSession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [factory, setFactory] = useState(initialFactory);
   const [period, setPeriod] = useState(initialPeriod);
   const [electricityBill, setElectricityBill] = useState(null);
@@ -53,14 +89,22 @@ function App() {
     setCalculationStatus("not_calculated");
   }
 
-  function handleFactorySubmit(event) {
-    event.preventDefault();
+ async function handleFactorySubmit(event) {
+  event.preventDefault();
+  setMessage("Saving factory profile...");
 
-    setMessage(
-      "Factory details validated locally. Backend saving is not connected yet."
-    );
+  try {
+    const savedFactory = await createFactory(factory);
+
+    // Retain the server-generated UUID for later API calls.
+    sessionStorage.setItem("factory_id", savedFactory.id);
+
+    setMessage(`Factory "${savedFactory.name}" saved successfully.`);
     setActiveStep(2);
+  } catch (error) {
+    setMessage(`Could not save factory: ${error.message}`);
   }
+}
 
   function handlePeriodSubmit(event) {
     event.preventDefault();
@@ -171,6 +215,21 @@ function App() {
     { number: 3, title: "Electricity evidence" },
     { number: 4, title: "Results & report" },
   ];
+
+  if (authChecking) {
+    return <main className="auth-screen">Connecting to CarbonLedger...</main>;
+  }
+
+  if (!user) {
+    return (
+      <AuthPanel
+        onAuthenticated={async () => {
+          const currentUser = await getCurrentUser();
+          setUser(currentUser);
+        }}
+      />
+    );
+  }
 
   return (
     <main className="app">
