@@ -1,8 +1,8 @@
-const API_BASE =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-export function getAccessToken() {
-  return sessionStorage.getItem("access_token");
+export function saveTokens(data) {
+  sessionStorage.setItem("access_token", data.access_token);
+  sessionStorage.setItem("refresh_token", data.refresh_token);
 }
 
 export function clearSession() {
@@ -20,14 +20,37 @@ function saveSession(data) {
   }
 }
 
+export function getAccessToken() {
+  return sessionStorage.getItem("access_token");
+}
+
+export function getRefreshToken() {
+  return sessionStorage.getItem("refresh_token");
+}
+
+export function isAuthenticated() {
+  return Boolean(getAccessToken());
+}
+
+// -----------------------------------------------------------------------------
+// Core Request Handler
+// -----------------------------------------------------------------------------
+
+/**
+ * Make an HTTP request to the CarbonLedger backend API.
+ * Handles ngrok browser-warning bypass, token injection, error parsing, and network failures.
+ */
 export async function apiRequest(path, options = {}) {
+  const token = sessionStorage.getItem("access_token");
   const headers = new Headers(options.headers || {});
   const token = getAccessToken();
 
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
 
-  if (options.body && !(options.body instanceof FormData) &&
-      typeof options.body === "string") {
+  // Let the browser set Content-Type automatically for FormData.
+  if (options.body && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -37,38 +60,87 @@ export async function apiRequest(path, options = {}) {
   });
 
   if (response.status === 204) return null;
+
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
     const detail = data?.detail;
     const message = Array.isArray(detail)
-      ? detail.map((item) => item.msg || JSON.stringify(item)).join(", ")
+      ? detail.map((e) => e.msg).join(", ")
       : typeof detail === "string"
         ? detail
         : `Request failed (${response.status})`;
+
     throw new Error(message);
   }
+
   return data;
 }
 
+// -----------------------------------------------------------------------------
+// Health Check Endpoint
+// -----------------------------------------------------------------------------
+
+export function checkHealth() {
+  return apiRequest("/health");
+}
+
+// -----------------------------------------------------------------------------
+// Authentication Endpoints (FastAPI /api/auth)
+// -----------------------------------------------------------------------------
+
+/**
+ * Register a new user account.
+ * Expected schema: { email: string, password: string (min 8 chars), full_name: string }
+ */
 export async function registerUser({ email, password, full_name }) {
   const data = await apiRequest("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, full_name }),
+    body: JSON.stringify({
+      email: email?.trim(),
+      password,
+      full_name: full_name?.trim(),
+    }),
   });
   saveSession(data);
   return data;
 }
 
+/**
+ * Log in an existing user.
+ * Expected schema: { email: string, password: string }
+ */
 export async function loginUser({ email, password }) {
   const data = await apiRequest("/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({
+      email: email?.trim(),
+      password,
+    }),
+  });
+  saveTokens(data);
+  return data;
+}
+
+/**
+ * Refresh access token using the stored refresh token.
+ */
+export async function refreshUserTokens() {
+  const token = getRefreshToken();
+  if (!token) {
+    throw new Error("No refresh token available");
+  }
+  const data = await apiRequest("/api/auth/refresh", {
+    method: "POST",
+    body: JSON.stringify({ refresh_token: token }),
   });
   saveSession(data);
   return data;
 }
 
+/**
+ * Fetch current authenticated user profile.
+ */
 export function getCurrentUser() {
   return apiRequest("/api/auth/me");
 }
@@ -77,26 +149,30 @@ export function logoutUser() {
   clearSession();
 }
 
+// -----------------------------------------------------------------------------
+// Firm / Factory Endpoints (FastAPI /api/firms)
+// -----------------------------------------------------------------------------
+
+/**
+ * Create a new factory firm entity.
+ * Required fields: name, state
+ * Optional: roof_area_sqm (gt 0), contracted_demand_mva (gt 0), tariff_category, registration_identifier
+ */
 export function createFactory(factory) {
-  const payload = {
-    name: factory.name.trim(),
-    state: factory.state.trim(),
-    segment: "induction_furnace",
-  };
-
-  if (factory.roof_area_sqm !== "" && factory.roof_area_sqm != null) {
-    payload.roof_area_sqm = Number(factory.roof_area_sqm);
-  }
-  if (factory.contracted_demand_mva !== "" && factory.contracted_demand_mva != null) {
-    payload.contracted_demand_mva = Number(factory.contracted_demand_mva);
-  }
-  if (factory.tariff_category?.trim()) {
-    payload.tariff_category = factory.tariff_category.trim();
-  }
-
   return apiRequest("/api/firms/", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      name: factory.name.trim(),
+      state: factory.state.trim(),
+      segment: "induction_furnace",
+      roof_area_sqm: factory.roof_area_sqm
+        ? Number(factory.roof_area_sqm)
+        : null,
+      contracted_demand_mva: factory.contracted_demand_mva
+        ? Number(factory.contracted_demand_mva)
+        : null,
+      tariff_category: factory.tariff_category.trim() || null,
+    }),
   });
 }
 
