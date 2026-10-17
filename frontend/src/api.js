@@ -1,25 +1,33 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-export function saveTokens(data) {
-  sessionStorage.setItem("access_token", data.access_token);
-  sessionStorage.setItem("refresh_token", data.refresh_token);
+export function getAccessToken() {
+  return sessionStorage.getItem("access_token");
 }
 
-export function clearTokens() {
+export function clearSession() {
   sessionStorage.removeItem("access_token");
   sessionStorage.removeItem("refresh_token");
 }
 
-export async function apiRequest(path, options = {}) {
-  const token = sessionStorage.getItem("access_token");
-  const headers = new Headers(options.headers || {});
-
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+function saveSession(data) {
+  if (!data?.access_token) {
+    throw new Error("The auth response did not include an access_token.");
   }
+  sessionStorage.setItem("access_token", data.access_token);
+  if (data.refresh_token) {
+    sessionStorage.setItem("refresh_token", data.refresh_token);
+  }
+}
 
-  // Let the browser set Content-Type automatically for FormData.
-  if (options.body && !(options.body instanceof FormData)) {
+export async function apiRequest(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const token = getAccessToken();
+
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  if (options.body && !(options.body instanceof FormData) &&
+      typeof options.body === "string") {
     headers.set("Content-Type", "application/json");
   }
 
@@ -29,20 +37,17 @@ export async function apiRequest(path, options = {}) {
   });
 
   if (response.status === 204) return null;
-
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
     const detail = data?.detail;
     const message = Array.isArray(detail)
-      ? detail.map((e) => e.msg).join(", ")
+      ? detail.map((item) => item.msg || JSON.stringify(item)).join(", ")
       : typeof detail === "string"
         ? detail
         : `Request failed (${response.status})`;
-
     throw new Error(message);
   }
-
   return data;
 }
 
@@ -51,7 +56,7 @@ export async function registerUser({ email, password, full_name }) {
     method: "POST",
     body: JSON.stringify({ email, password, full_name }),
   });
-  saveTokens(data);
+  saveSession(data);
   return data;
 }
 
@@ -60,7 +65,7 @@ export async function loginUser({ email, password }) {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
-  saveTokens(data);
+  saveSession(data);
   return data;
 }
 
@@ -68,21 +73,30 @@ export function getCurrentUser() {
   return apiRequest("/api/auth/me");
 }
 
+export function logoutUser() {
+  clearSession();
+}
+
 export function createFactory(factory) {
+  const payload = {
+    name: factory.name.trim(),
+    state: factory.state.trim(),
+    segment: "induction_furnace",
+  };
+
+  if (factory.roof_area_sqm !== "" && factory.roof_area_sqm != null) {
+    payload.roof_area_sqm = Number(factory.roof_area_sqm);
+  }
+  if (factory.contracted_demand_mva !== "" && factory.contracted_demand_mva != null) {
+    payload.contracted_demand_mva = Number(factory.contracted_demand_mva);
+  }
+  if (factory.tariff_category?.trim()) {
+    payload.tariff_category = factory.tariff_category.trim();
+  }
+
   return apiRequest("/api/firms/", {
     method: "POST",
-    body: JSON.stringify({
-      name: factory.name.trim(),
-      state: factory.state.trim(),
-      segment: "induction_furnace",
-      roof_area_sqm: factory.roof_area_sqm
-        ? Number(factory.roof_area_sqm)
-        : null,
-      contracted_demand_mva: factory.contracted_demand_mva
-        ? Number(factory.contracted_demand_mva)
-        : null,
-      tariff_category: factory.tariff_category.trim() || null,
-    }),
+    body: JSON.stringify(payload),
   });
 }
 

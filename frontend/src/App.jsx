@@ -1,8 +1,12 @@
-
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "./App.css";
-
-import { createFactory } from "./api";
+import AuthPanel from "./AuthPanel";
+import {
+  getAccessToken,
+  getCurrentUser,
+  clearSession,
+  createFactory,
+} from "./api";
 
 const initialFactory = {
   name: "",
@@ -19,6 +23,36 @@ const initialPeriod = {
 };
 
 function App() {
+
+  const [user, setUser] = useState(null);
+const [authChecking, setAuthChecking] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function restoreSession() {
+      if (!getAccessToken()) {
+        if (!cancelled) setAuthChecking(false);
+        return;
+      }
+
+      try {
+        const currentUser = await getCurrentUser();
+        if (!cancelled) setUser(currentUser);
+      } catch (error) {
+        clearSession();
+        if (!cancelled) setUser(null);
+      } finally {
+        if (!cancelled) setAuthChecking(false);
+      }
+    }
+
+    restoreSession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [factory, setFactory] = useState(initialFactory);
   const [period, setPeriod] = useState(initialPeriod);
   const [electricityBill, setElectricityBill] = useState(null);
@@ -181,6 +215,21 @@ function App() {
     { number: 3, title: "Electricity evidence" },
     { number: 4, title: "Results & report" },
   ];
+
+  if (authChecking) {
+    return <main className="auth-screen">Connecting to CarbonLedger...</main>;
+  }
+
+  if (!user) {
+    return (
+      <AuthPanel
+        onAuthenticated={async () => {
+          const currentUser = await getCurrentUser();
+          setUser(currentUser);
+        }}
+      />
+    );
+  }
 
   return (
     <main className="app">
