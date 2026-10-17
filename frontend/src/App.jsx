@@ -1,8 +1,18 @@
-
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "./App.css";
 
-import { createFactory } from "./api";
+import {
+  createFactory,
+  createReportingPeriod,
+  syncEvidence,
+  calculateEmissions,
+  exportReport,
+  loginUser,
+  registerUser,
+  getCurrentUser,
+  clearTokens,
+  getAccessToken,
+} from "./api";
 
 const initialFactory = {
   name: "",
@@ -37,6 +47,79 @@ function App() {
   const [factorStatus, setFactorStatus] = useState("not_synced");
   const [calculationStatus, setCalculationStatus] = useState("not_calculated");
 
+  // Authentication State
+  const [user, setUser] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState("login"); // 'login' or 'register'
+  const [authForm, setAuthForm] = useState({
+    email: "",
+    password: "",
+    full_name: "",
+  });
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
+
+  // Check existing authentication on load
+  useEffect(() => {
+    async function loadCurrentUser() {
+      if (getAccessToken()) {
+        try {
+          const profile = await getCurrentUser();
+          setUser(profile);
+        } catch {
+          // Token invalid or expired
+          clearTokens();
+          setUser(null);
+        }
+      }
+    }
+    loadCurrentUser();
+  }, []);
+
+  function handleAuthFormChange(e) {
+    const { name, value } = e.target;
+    setAuthForm((prev) => ({ ...prev, [name]: value }));
+  }
+
+  async function handleAuthSubmit(e) {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError("");
+
+    try {
+      if (authMode === "login") {
+        await loginUser({
+          email: authForm.email,
+          password: authForm.password,
+        });
+      } else {
+        await registerUser({
+          email: authForm.email,
+          password: authForm.password,
+          full_name: authForm.full_name,
+        });
+      }
+
+      const profile = await getCurrentUser();
+      setUser(profile);
+      setShowAuthModal(false);
+      setAuthForm({ email: "", password: "", full_name: "" });
+      setMessage(
+        `Welcome, ${profile.full_name || profile.email}! Signed in successfully.`
+      );
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  function handleSignOut() {
+    clearTokens();
+    setUser(null);
+    setMessage("Signed out successfully.");
+  }
+
   function updateFactory(event) {
     const { name, value } = event.target;
     setFactory((prev) => ({ ...prev, [name]: value }));
@@ -55,24 +138,31 @@ function App() {
     setCalculationStatus("not_calculated");
   }
 
- async function handleFactorySubmit(event) {
-  event.preventDefault();
-  setMessage("Saving factory profile...");
+  async function handleFactorySubmit(event) {
+    event.preventDefault();
+    setMessage("Saving factory profile...");
 
-  try {
-    const savedFactory = await createFactory(factory);
+    try {
+      const savedFactory = await createFactory(factory);
 
-    // Retain the server-generated UUID for later API calls.
-    sessionStorage.setItem("factory_id", savedFactory.id);
+      // Retain the server-generated UUID for later API calls.
+      sessionStorage.setItem("factory_id", savedFactory.id);
 
-    setMessage(`Factory "${savedFactory.name}" saved successfully.`);
-    setActiveStep(2);
-  } catch (error) {
-    setMessage(`Could not save factory: ${error.message}`);
+      setMessage(`Factory "${savedFactory.name}" saved successfully.`);
+      setActiveStep(2);
+    } catch (error) {
+      if (error.status === 401) {
+        setMessage(
+          "Authentication required (401). Please sign in using the button above to continue."
+        );
+        setShowAuthModal(true);
+      } else {
+        setMessage(`Could not save factory: ${error.message}`);
+      }
+    }
   }
-}
 
-  function handlePeriodSubmit(event) {
+  async function handlePeriodSubmit(event) {
     event.preventDefault();
 
     if (period.end_date < period.start_date) {
@@ -80,8 +170,34 @@ function App() {
       return;
     }
 
+    const factoryId = sessionStorage.getItem("factory_id");
+    if (factoryId) {
+      try {
+        setMessage("Saving reporting period to backend...");
+        const savedPeriod = await createReportingPeriod({
+          firm_id: factoryId,
+          start_date: period.start_date,
+          end_date: period.end_date,
+          production_tonnes: period.production_tonnes,
+        });
+
+        if (savedPeriod?.id) {
+          sessionStorage.setItem("period_id", savedPeriod.id);
+        }
+        setMessage("Reporting period saved successfully.");
+        setActiveStep(3);
+        return;
+      } catch (err) {
+        setMessage(
+          `Reporting period validated locally (${err.message}). Proceeding to evidence.`
+        );
+        setActiveStep(3);
+        return;
+      }
+    }
+
     setMessage(
-      "Reporting period validated locally. Backend saving is not connected yet."
+      "Reporting period validated locally. Save a factory profile first for backend linking."
     );
     setActiveStep(3);
   }
@@ -101,7 +217,7 @@ function App() {
 
     if (file) {
       setMessage(
-        `${file.name} selected. Actual upload and extraction require the backend API.`
+        `${file.name} selected. Review and confirm activity data below.`
       );
     }
   }
@@ -127,7 +243,7 @@ function App() {
 
     setMessage(
       status === "confirmed"
-        ? "Details marked as confirmed locally. Backend verification is not connected yet."
+        ? "Details marked as confirmed locally. Ready for emissions calculation."
         : status === "flagged"
           ? "Document flagged locally for review."
           : "Document discarded from this screen."
@@ -144,16 +260,34 @@ function App() {
     }
   }
 
-  function handleSync() {
-    setFactorStatus("not_synced");
-    setMessage(
-      "Live evidence sync is not connected yet. No live emission factor has been retrieved."
-    );
+  async function handleSync() {
+    if (!factory.state) {
+      setMessage("Please enter a factory state in Step 1 first.");
+      return;
+    }
+
+    setMessage(`Connecting to evidence service for ${factory.state}...`);
+    try {
+      const res = await syncEvidence(factory.state);
+      setFactorStatus("synced");
+      setMessage(
+        `Evidence synced for ${factory.state}. ${res?.items_synced || 0} items retrieved.`
+      );
+    } catch (err) {
+      setFactorStatus("not_synced");
+      setMessage(
+        `Live evidence sync note: ${err.message}`
+      );
+    }
   }
 
-  function handleCalculate() {
-    if (!period.start_date || !period.end_date ||
-        !period.production_tonnes || Number(period.production_tonnes) <= 0) {
+  async function handleCalculate() {
+    if (
+      !period.start_date ||
+      !period.end_date ||
+      !period.production_tonnes ||
+      Number(period.production_tonnes) <= 0
+    ) {
       setMessage("Complete the reporting period and production details first.");
       return;
     }
@@ -163,15 +297,44 @@ function App() {
       return;
     }
 
+    const periodId = sessionStorage.getItem("period_id");
+    if (periodId) {
+      setMessage("Calculating emissions via calculation engine...");
+      try {
+        const result = await calculateEmissions(periodId);
+        setCalculationStatus("calculated");
+        setMessage(
+          `Calculation complete! Total: ${result.total_emissions_tco2e} tCO2e (Scope 2: ${result.total_scope2_tco2e} tCO2e).`
+        );
+        return;
+      } catch (err) {
+        setMessage(`Calculation engine note: ${err.message}`);
+        return;
+      }
+    }
+
     setCalculationStatus("not_calculated");
     setMessage(
-      "Calculation requires the backend API and a validated emission factor. No emissions result has been generated."
+      "Calculation requires a backend-persisted reporting period. Complete steps 1-3 to link records."
     );
   }
 
-  function handleExport() {
+  async function handleExport() {
+    const periodId = sessionStorage.getItem("period_id");
+    if (periodId) {
+      setMessage("Preparing report archive...");
+      try {
+        await exportReport(periodId, "pdf");
+        setMessage("Report export complete.");
+        return;
+      } catch (err) {
+        setMessage(`Report export note: ${err.message}`);
+        return;
+      }
+    }
+
     setMessage(
-      "Report export will be available once the backend report API is connected."
+      "Report export will be available once the reporting period has been calculated."
     );
   }
 
@@ -189,10 +352,145 @@ function App() {
           <span className="brand-mark">C</span>
           <span>CarbonLedger</span>
         </a>
-        <span className="topbar-caption">
-          Carbon intelligence for industry
-        </span>
+        <div className="topbar-right">
+          <span className="topbar-caption">
+            Carbon intelligence for industry
+          </span>
+          {user ? (
+            <div className="user-profile">
+              <span className="user-badge" title={user.email}>
+                👤 {user.full_name || user.email}
+              </span>
+              <button
+                type="button"
+                className="text-button signout-btn"
+                onClick={handleSignOut}
+              >
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="secondary-button auth-trigger-btn"
+              onClick={() => {
+                setAuthError("");
+                setShowAuthModal(true);
+              }}
+            >
+              Sign in / Register
+            </button>
+          )}
+        </div>
       </header>
+
+      {/* Authentication Modal */}
+      {showAuthModal && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setShowAuthModal(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>
+                {authMode === "login"
+                  ? "Sign in to CarbonLedger"
+                  : "Create an account"}
+              </h3>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setShowAuthModal(false)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="auth-tabs">
+              <button
+                type="button"
+                className={`auth-tab ${authMode === "login" ? "active" : ""}`}
+                onClick={() => {
+                  setAuthMode("login");
+                  setAuthError("");
+                }}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                className={`auth-tab ${authMode === "register" ? "active" : ""}`}
+                onClick={() => {
+                  setAuthMode("register");
+                  setAuthError("");
+                }}
+              >
+                Register
+              </button>
+            </div>
+
+            {authError && <div className="auth-error">{authError}</div>}
+
+            <form onSubmit={handleAuthSubmit}>
+              {authMode === "register" && (
+                <div className="field">
+                  <label htmlFor="auth_full_name">Full name *</label>
+                  <input
+                    id="auth_full_name"
+                    name="full_name"
+                    value={authForm.full_name}
+                    onChange={handleAuthFormChange}
+                    placeholder="Jane Doe"
+                    required
+                  />
+                </div>
+              )}
+
+              <div className="field">
+                <label htmlFor="auth_email">Email address *</label>
+                <input
+                  id="auth_email"
+                  name="email"
+                  type="email"
+                  value={authForm.email}
+                  onChange={handleAuthFormChange}
+                  placeholder="name@company.com"
+                  required
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="auth_password">Password * (min 8 chars)</label>
+                <input
+                  id="auth_password"
+                  name="password"
+                  type="password"
+                  minLength={8}
+                  value={authForm.password}
+                  onChange={handleAuthFormChange}
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={authLoading}
+              >
+                {authLoading
+                  ? "Processing..."
+                  : authMode === "login"
+                    ? "Sign In →"
+                    : "Create Account →"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       <section className="workspace" id="top">
         <div className="intro">
@@ -232,8 +530,8 @@ function App() {
                   <p className="eyebrow">01 / FACTORY</p>
                   <h2>Factory profile</h2>
                   <p className="panel-description">
-                    Tell us where the factory operates and provide its
-                    basic electrical and physical specifications.
+                    Tell us where the factory operates and provide its basic
+                    electrical and physical specifications.
                   </p>
                 </div>
                 <span className="section-icon">⌂</span>
@@ -278,7 +576,7 @@ function App() {
                       id="roof_area_sqm"
                       name="roof_area_sqm"
                       type="number"
-                      min="0"
+                      min="0.01"
                       step="any"
                       value={factory.roof_area_sqm}
                       onChange={updateFactory}
@@ -294,7 +592,7 @@ function App() {
                       id="contracted_demand_mva"
                       name="contracted_demand_mva"
                       type="number"
-                      min="0"
+                      min="0.01"
                       step="any"
                       value={factory.contracted_demand_mva}
                       onChange={updateFactory}
@@ -378,8 +676,8 @@ function App() {
                     required
                   />
                   <span className="helper">
-                    Used to calculate emissions per tonne, when supported
-                    by the calculation engine.
+                    Used to calculate emissions per tonne, when supported by the
+                    calculation engine.
                   </span>
                 </div>
 
@@ -395,8 +693,8 @@ function App() {
                   <p className="eyebrow">03 / SOURCE DOCUMENT</p>
                   <h2>Electricity bill</h2>
                   <p className="panel-description">
-                    Upload a bill, then review its extracted activity data
-                    before confirming it.
+                    Upload a bill, then review its extracted activity data before
+                    confirming it.
                   </p>
                 </div>
                 <span className="section-icon">↥</span>
@@ -409,9 +707,7 @@ function App() {
                     ? electricityBill.name
                     : "Choose an electricity bill"}
                 </strong>
-                <span>
-                  PDF, PNG or JPEG · Select a file from your device
-                </span>
+                <span>PDF, PNG or JPEG · Select a file from your device</span>
                 {electricityBill && (
                   <span>
                     {(electricityBill.size / 1024).toFixed(1)} KB
@@ -548,14 +844,12 @@ function App() {
                 <div>
                   <strong>Grid emission factor</strong>
                   <p>
-                    Retrieve the applicable factor and its source through
-                    the backend evidence service.
+                    Retrieve the applicable factor and its source through the
+                    backend evidence service.
                   </p>
                 </div>
                 <span className="review-status">
-                  {factorStatus === "synced"
-                    ? "Synced"
-                    : "Not connected"}
+                  {factorStatus === "synced" ? "Synced" : "Not connected"}
                 </span>
               </div>
 
@@ -575,9 +869,9 @@ function App() {
                     : "Your results will appear here"}
                 </h3>
                 <p>
-                  No emissions estimate is shown until the backend returns
-                  a calculation based on validated activity data and an
-                  applicable emission factor.
+                  No emissions estimate is shown until the backend returns a
+                  calculation based on validated activity data and an applicable
+                  emission factor.
                 </p>
               </div>
 
@@ -649,8 +943,7 @@ function App() {
               <div className="preview-divider" />
 
               <p className="helper">
-                Preview only. These values have not been saved to the
-                backend.
+                Preview only. These values have not been saved to the backend.
               </p>
             </section>
 
@@ -663,9 +956,9 @@ function App() {
                   "Reporting period",
                   Boolean(
                     period.start_date &&
-                    period.end_date &&
-                    period.end_date >= period.start_date &&
-                    Number(period.production_tonnes) > 0
+                      period.end_date &&
+                      period.end_date >= period.start_date &&
+                      Number(period.production_tonnes) > 0
                   ),
                 ],
                 ["Bill selected", Boolean(electricityBill)],
@@ -679,8 +972,8 @@ function App() {
                 </div>
               ))}
               <p className="helper checklist-note">
-                Completing these items does not mean the backend has saved
-                or calculated anything.
+                Completing these items does not mean the backend has saved or
+                calculated anything.
               </p>
             </section>
           </aside>

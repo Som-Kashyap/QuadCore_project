@@ -69,6 +69,134 @@ button:disabled {
   font-size: 13px;
 }
 
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #176b45;
+  background: #eef7f0;
+  padding: 6px 11px;
+  border-radius: 8px;
+  border: 1px solid #cce5d4;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.auth-trigger-btn {
+  min-height: 36px;
+  padding: 7px 13px;
+  font-size: 12px;
+}
+
+.signout-btn {
+  font-size: 12px;
+  padding: 6px 8px;
+  min-height: auto;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 18, 0.55);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+}
+
+.modal-card {
+  width: min(420px, 100%);
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #e1e8e0;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.16);
+  padding: 26px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: -0.3px;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  font-size: 22px;
+  color: #788279;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.modal-close:hover {
+  background: #edf2ed;
+  color: #202820;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid #e3e8e1;
+  padding-bottom: 8px;
+}
+
+.auth-tab {
+  background: transparent;
+  border: none;
+  font-size: 13px;
+  font-weight: 700;
+  color: #68736a;
+  padding: 7px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.auth-tab.active {
+  color: #176b45;
+  background: #eef7f0;
+}
+
+.auth-error {
+  padding: 10px 13px;
+  margin-bottom: 14px;
+  border-radius: 8px;
+  background: #fdf2f2;
+  border: 1px solid #f9d2d2;
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+
 .workspace {
   width: min(1180px, 92%);
   margin: 0 auto;
