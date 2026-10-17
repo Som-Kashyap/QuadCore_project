@@ -1,11 +1,13 @@
 import enum
 from typing import Optional, TYPE_CHECKING
+from uuid import UUID
 
 from sqlalchemy import (
     String,
     Float,
     ForeignKey,
     Enum,
+    Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -53,8 +55,8 @@ class ElectricityRecord(Base):
     reporting_period_id: Mapped[int] = mapped_column(
         ForeignKey("reporting_periods.id", ondelete="CASCADE"), nullable=False
     )
-    source_document_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("uploaded_documents.id", ondelete="SET NULL")
+    source_document_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("uploaded_documents.id", ondelete="SET NULL")
     )
     
     consumed_kwh: Mapped[float] = mapped_column(Float, nullable=False)
@@ -78,8 +80,8 @@ class FuelRecord(Base):
     reporting_period_id: Mapped[int] = mapped_column(
         ForeignKey("reporting_periods.id", ondelete="CASCADE"), nullable=False
     )
-    source_document_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("uploaded_documents.id", ondelete="SET NULL")
+    source_document_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("uploaded_documents.id", ondelete="SET NULL")
     )
     
     fuel_type: Mapped[FuelType] = mapped_column(Enum(FuelType), nullable=False)
@@ -102,8 +104,8 @@ class MaterialRecord(Base):
     reporting_period_id: Mapped[int] = mapped_column(
         ForeignKey("reporting_periods.id", ondelete="CASCADE"), nullable=False
     )
-    source_document_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("uploaded_documents.id", ondelete="SET NULL")
+    source_document_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("uploaded_documents.id", ondelete="SET NULL")
     )
     
     material_type: Mapped[MaterialType] = mapped_column(Enum(MaterialType), nullable=False)

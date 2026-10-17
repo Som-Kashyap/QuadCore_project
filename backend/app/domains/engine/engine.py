@@ -55,7 +55,7 @@ class EmissionResult:
 # any figure is reported externally.
 # ------------------------------------------------------------------------------
 DEFAULT_EMISSION_FACTORS = EmissionFactors(
-    electricity_tco2e_per_kwh=0.00071,
+    electricity_tco2e_per_kwh=0.000727,
     fuel_tco2e_per_litre={
         "diesel": 0.00268,
         "furnace_oil": 0.00315,
