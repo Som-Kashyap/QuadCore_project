@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES : int = 30
     REFRESH_TOKEN_EXPIRE_DAYS : int = 7
 
+    # Documents & AI Extraction settings
+    GROQ_API_KEY : str | None = None
+    DOCUMENTS_STORAGE_PATH : str = "storage/documents"
+
+
     @property
     def DATABASE_URL(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}?ssl=require"

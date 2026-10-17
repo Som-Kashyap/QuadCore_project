@@ -9,8 +9,11 @@ dependencies = [
     "asyncpg>=0.32.0",
     "fastapi[standard]>=0.143.2",
     "greenlet>=3.5.6",
+    "groq>=1.7.0",
     "passlib[bcrypt]>=1.7.4",
     "pydantic[email]>=2.14.1",
+    "pypdf>=6.21.1",
+    "python-docx>=1.2.0",
     "python-jose[cryptography]>=3.5.0",
     "sqlalchemy>=2.1.4",
 ]
