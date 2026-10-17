@@ -43,10 +43,13 @@ export function isAuthenticated() {
 export async function apiRequest(path, options = {}) {
   const token = sessionStorage.getItem("access_token");
   const headers = new Headers(options.headers || {});
-  const token = getAccessToken();
+  const accessToken = getAccessToken();
 
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+  const finalToken = accessToken || token;
+
+
+  if (finalToken) {
+    headers.set("Authorization", `Bearer ${finalToken}`);
   }
 
   // Let the browser set Content-Type automatically for FormData.
