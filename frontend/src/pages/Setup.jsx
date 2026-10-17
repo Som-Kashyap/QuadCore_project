@@ -10,6 +10,7 @@ import {
   InfoIcon,
 } from "../components/Icons";
 
+
 const initialFactory = {
   name: "",
   state: "",
