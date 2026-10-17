@@ -2,6 +2,8 @@ import enum
 from typing import List, Optional, TYPE_CHECKING
 from datetime import date, datetime, timezone
 
+from uuid import UUID
+
 from sqlalchemy import (
     String,
     Float,
@@ -13,6 +15,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Index,
+    Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -50,7 +53,7 @@ class ReportingPeriod(Base):
     __tablename__ = "reporting_periods"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    firm_id: Mapped[int] = mapped_column(ForeignKey("firms.id", ondelete="CASCADE"), nullable=False)
+    firm_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("firms.id", ondelete="CASCADE"), nullable=False)
     start_date: Mapped[date] = mapped_column(nullable=False)
     end_date: Mapped[date] = mapped_column(nullable=False)
     
