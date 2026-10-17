@@ -1,8 +1,9 @@
 from datetime import date, datetime
 from enum import Enum
-from typing import Optional, Any
+from typing import Optional, Any, Union
 from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict
+
 
 from app.core.schemas import TimestampResponse
 
@@ -50,7 +51,7 @@ class ReportingPeriodUpdate(BaseModel):
 class ReportingPeriodResponse(ReportingPeriodBase, TimestampResponse):
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
+    id: Union[int, UUID]
 
     # Calculated emission totals (populated by the engine after a run)
     total_scope1_tco2e: Optional[float] = None
@@ -66,8 +67,9 @@ class ReportingPeriodResponse(ReportingPeriodBase, TimestampResponse):
 # ==============================================================================
 
 class GeneratedReportBase(BaseModel):
-    reporting_period_id: UUID = Field(..., description="FK to the parent ReportingPeriod")
+    reporting_period_id: Union[int, UUID] = Field(..., description="FK to the parent ReportingPeriod")
     report_title: str = Field(..., max_length=255)
+
     report_type: ReportType
     export_format: ReportFormat
     mime_type: str = Field(..., max_length=100)
@@ -85,7 +87,7 @@ class GeneratedReportCreate(GeneratedReportBase):
 class GeneratedReportResponse(GeneratedReportBase, TimestampResponse):
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
+    id: Union[int, UUID]
     generated_at: datetime
 
 
@@ -103,9 +105,10 @@ class CalculationResultResponse(BaseModel):
     specific_emissions_tco2e_per_tonne: Optional[float] = Field(
         None, description="Emission intensity per tonne of product"
     )
-    recommendations: list[str] = Field(
+    recommendations: list[Union[str, dict[str, Any]]] = Field(
         default_factory=list, description="Renewable / efficiency recommendations from the pathways engine"
     )
+
 
 
 # ==============================================================================
