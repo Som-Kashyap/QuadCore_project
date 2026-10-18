@@ -454,3 +454,11 @@ The app does not strictly depend on live web fetching for every calculation. Eve
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:1b5e20,100:0f9b8e&height=120&section=footer" alt="footer wave" width="100%"/>
 
 </div>
+
+
+### Developers
+* Anshu Kashyap 
+* Som Kashyap 
+* Kanishka Upadhyay 
+* Anushka Goel
+##### Team QuadCore
