@@ -62,9 +62,6 @@ export default function Navbar({ currentRoute }) {
               >
                 📝 Audit Setup & Ledger
               </a>
-              <a href="#/" className="nav-link" style={{ opacity: 0.7 }}>
-                ← Overview Page
-              </a>
             </>
           ) : (
             <>
@@ -90,18 +87,22 @@ export default function Navbar({ currentRoute }) {
               >
                 How it works
               </a>
-              <a
-                href="#/dashboard"
-                className={`nav-link ${currentRoute === "#/dashboard" ? "active" : ""}`}
-              >
-                Plant Dashboard
-              </a>
-              <a
-                href="#/setup"
-                className={`nav-link ${currentRoute === "#/setup" ? "active" : ""}`}
-              >
-                Audit Setup
-              </a>
+              {authed && (
+                <>
+                  <a
+                    href="#/dashboard"
+                    className={`nav-link ${currentRoute === "#/dashboard" ? "active" : ""}`}
+                  >
+                    Plant Dashboard
+                  </a>
+                  <a
+                    href="#/setup"
+                    className={`nav-link ${currentRoute === "#/setup" ? "active" : ""}`}
+                  >
+                    Audit Setup
+                  </a>
+                </>
+              )}
             </>
           )}
         </nav>
@@ -179,13 +180,6 @@ export default function Navbar({ currentRoute }) {
               >
                 📝 Audit Setup & Ledger
               </a>
-              <a
-                href="#/"
-                className="mobile-nav-link"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                ← Overview Page
-              </a>
             </>
           ) : (
             <>
@@ -203,13 +197,24 @@ export default function Navbar({ currentRoute }) {
               >
                 How it works
               </a>
-              <a
-                href="#/dashboard"
-                className="mobile-nav-link"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Dashboard
-              </a>
+              {authed && (
+                <>
+                  <a
+                    href="#/dashboard"
+                    className="mobile-nav-link"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Plant Dashboard
+                  </a>
+                  <a
+                    href="#/setup"
+                    className="mobile-nav-link"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Audit Setup
+                  </a>
+                </>
+              )}
             </>
           )}
           {authed ? (
