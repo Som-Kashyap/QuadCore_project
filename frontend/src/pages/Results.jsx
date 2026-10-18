@@ -5,12 +5,14 @@ import {
   SparklesIcon,
 } from "../components/Icons";
 import { getCalculationResult, exportReport } from "../api";
+import { generateAuditPdf } from "../reportPdfGenerator";
 
 export default function Results() {
   const sliderId = useId();
   const [storedData] = useState(() => getCalculationResult());
   const [exportMessage, setExportMessage] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [exportedReport, setExportedReport] = useState(null);
 
   // State for What-if slider: Renewable electricity share percentage (0% to 100%)
   const [renewableShare, setRenewableShare] = useState(0);
@@ -51,12 +53,26 @@ export default function Results() {
     setExportMessage("");
     try {
       const res = await exportReport(storedData.period_id, "pdf");
-      setExportMessage(`Report exported and archived! Hash: ${res.computation_snapshot?.snapshot_sha256?.slice(0, 16)}...`);
+      setExportedReport(res);
+      setExportMessage(`Report "${res.report_title}" successfully generated & archived! Hash: ${res.computation_snapshot?.snapshot_sha256?.slice(0, 16)}...`);
     } catch (err) {
       setExportMessage(`Export notice: ${err.message}`);
     } finally {
       setExporting(false);
     }
+  }
+
+  function downloadReportSnapshot() {
+    if (!exportedReport?.computation_snapshot) return;
+    const blob = new Blob([JSON.stringify(exportedReport.computation_snapshot, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `audit_certificate_period_${storedData.period_id}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   // Source trail audit table records
@@ -367,16 +383,39 @@ export default function Results() {
               </div>
             </div>
 
-            <div className="report-action-btn-group">
+            <div className="report-action-btn-group" style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
               <button
                 type="button"
                 className="pill-button pill-button-primary"
                 onClick={handleExportReport}
                 disabled={exporting}
               >
-                {exporting ? "Archiving report..." : "Download certified audit report (PDF)"}
+                {exporting ? "Archiving report..." : "Generate & Archive Audit Report"}
               </button>
-              <a href="#/setup" className="pill-button pill-button-secondary">
+              {exportedReport && (
+                <>
+                  <button
+                    type="button"
+                    className="pill-button pill-button-primary"
+                    style={{ background: "var(--color-primary-dark, #0f4c3a)" }}
+                    onClick={() => generateAuditPdf(exportedReport, factory, period, storedData)}
+                  >
+                    <ReportIcon className="w-4 h-4" />
+                    <span>Download Audit Certificate (PDF)</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="pill-button pill-button-outline"
+                    onClick={downloadReportSnapshot}
+                  >
+                    Export JSON Snapshot
+                  </button>
+                </>
+              )}
+              <a href="#/dashboard" className="pill-button pill-button-secondary">
+                View Plant Dashboard →
+              </a>
+              <a href="#/setup" className="pill-button pill-button-outline">
                 Edit audit inputs
               </a>
             </div>

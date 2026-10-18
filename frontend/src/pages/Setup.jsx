@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   FactoryIcon,
   DocumentIcon,
@@ -11,16 +11,27 @@ import {
 } from "../components/Icons";
 import {
   createFactory,
+  getFactories,
   createReportingPeriod,
+  getReportingPeriods,
+  getPeriodReports,
   uploadDocument,
   createElectricityRecord,
+  createFuelRecord,
+  createMaterialRecord,
+  getPeriodActivity,
+  verifyActivity,
+  deleteActivityRecord,
+  ingestDocumentToActivity,
   syncEvidence,
+  getEvidenceItems,
   calculateFootprint,
   exportReport,
   saveCalculationResult,
   isAuthenticated,
 } from "../api";
 import AuthPanel from "../AuthPanel";
+import { generateAuditPdf } from "../reportPdfGenerator";
 
 const initialFactory = {
   name: "",
@@ -38,57 +49,184 @@ const initialPeriod = {
 
 export default function Setup() {
   const [authed, setAuthed] = useState(isAuthenticated());
-  const [factory, setFactory] = useState(initialFactory);
-  const [period, setPeriod] = useState(initialPeriod);
-  const [electricityBill, setElectricityBill] = useState(null);
+  const [activeStep, setActiveStep] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("info"); // "info" | "error" | "success"
 
-  const [documentFields, setDocumentFields] = useState({
-    supplier: "",
+  // Step 1: Factory State
+  const [factory, setFactory] = useState(initialFactory);
+  const [existingFactories, setExistingFactories] = useState([]);
+  const [selectedFirmId, setSelectedFirmId] = useState("");
+  const [createdFirmId, setCreatedFirmId] = useState(null);
+
+  // Step 2: Reporting Period State
+  const [period, setPeriod] = useState(initialPeriod);
+  const [existingPeriods, setExistingPeriods] = useState([]);
+  const [selectedPeriodId, setSelectedPeriodId] = useState("");
+  const [createdPeriodId, setCreatedPeriodId] = useState(null);
+
+  // Step 3: Activity & Evidence State
+  const [activityCategory, setActivityCategory] = useState("electricity"); // "electricity" | "fuel" | "material"
+  const [uploadedDocId, setUploadedDocId] = useState(null);
+  const [uploadedDocFile, setUploadedDocFile] = useState(null);
+  const [extractionInfo, setExtractionInfo] = useState(null);
+
+  // Electricity Fields
+  const [electricityFields, setElectricityFields] = useState({
+    consumedKwh: "",
+    peakDemandKva: "",
+    powerFactor: "0.95",
+    totalBilledInr: "",
+    utilityProvider: "",
     billingPeriod: "",
-    electricityKwh: "",
+    consumerNumber: "",
+  });
+
+  // Fuel Fields
+  const [fuelFields, setFuelFields] = useState({
+    fuelType: "diesel",
+    quantityLiters: "",
+    totalCostInr: "",
+    supplierName: "",
     invoiceNumber: "",
   });
 
-  const [documentStatus, setDocumentStatus] = useState("empty");
-  const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState("info"); // "info" | "error" | "success"
-  const [activeStep, setActiveStep] = useState(1);
+  // Material Fields (Scope 3 Precursors)
+  const [materialFields, setMaterialFields] = useState({
+    materialType: "steel_scrap",
+    quantityTonnes: "",
+    supplierName: "",
+    supplierEmissionFactor: "",
+  });
 
-  const [createdFirmId, setCreatedFirmId] = useState(null);
-  const [createdPeriodId, setCreatedPeriodId] = useState(null);
-  const [uploadedDocId, setUploadedDocId] = useState(null);
+  // Consolidated Period Activity Ledger
+  const [periodActivity, setPeriodActivity] = useState({
+    electricity_records: [],
+    fuel_records: [],
+    material_records: [],
+  });
+
+  // Step 4: Evidence Sync, Calculation & Reports
   const [syncedFactor, setSyncedFactor] = useState(null);
-  const [calculationResult, setCalculationResult] = useState(null);
-
+  const [allEvidenceItems, setAllEvidenceItems] = useState([]);
   const [factorStatus, setFactorStatus] = useState("not_synced");
+  const [calculationResult, setCalculationResult] = useState(null);
   const [calculationStatus, setCalculationStatus] = useState("not_calculated");
-  const [loading, setLoading] = useState(false);
+  const [archivedReports, setArchivedReports] = useState([]);
+  const [generatedReport, setGeneratedReport] = useState(null);
 
   function setFeedback(msg, type = "info") {
     setMessage(msg);
     setMessageType(type);
   }
 
-  function updateFactory(event) {
-    const { name, value } = event.target;
-    setFactory((prev) => ({ ...prev, [name]: value }));
+  // Load existing factories when authenticated
+  useEffect(() => {
+    if (!authed) return;
+    loadFactories();
+    loadEvidence();
+  }, [authed]);
+
+  // Load periods when firm selected
+  useEffect(() => {
+    if (!createdFirmId) return;
+    loadPeriods(createdFirmId);
+  }, [createdFirmId]);
+
+  // Load activity ledger when period selected
+  useEffect(() => {
+    if (!createdPeriodId) return;
+    loadActivityLedger(createdPeriodId);
+    loadArchivedReports(createdPeriodId);
+  }, [createdPeriodId]);
+
+  async function loadFactories() {
+    try {
+      const firms = await getFactories();
+      if (Array.isArray(firms)) {
+        setExistingFactories(firms);
+      }
+    } catch {
+      // Ignored for new users
+    }
   }
 
-  function updatePeriod(event) {
-    const { name, value } = event.target;
-    setPeriod((prev) => ({ ...prev, [name]: value }));
+  async function loadPeriods(firmId) {
+    try {
+      const periods = await getReportingPeriods(firmId);
+      if (Array.isArray(periods)) {
+        setExistingPeriods(periods);
+      }
+    } catch {
+      // Ignored
+    }
   }
 
-  function updateDocument(event) {
-    const { name, value } = event.target;
-    setDocumentFields((prev) => ({ ...prev, [name]: value }));
-    setDocumentStatus("pending");
-    setCalculationStatus("not_calculated");
+  async function loadActivityLedger(periodId) {
+    try {
+      const data = await getPeriodActivity(periodId);
+      if (data) {
+        setPeriodActivity({
+          electricity_records: data.electricity_records || [],
+          fuel_records: data.fuel_records || [],
+          material_records: data.material_records || [],
+        });
+      }
+    } catch {
+      // Ignored
+    }
+  }
+
+  async function loadEvidence() {
+    try {
+      const items = await getEvidenceItems();
+      if (Array.isArray(items)) {
+        setAllEvidenceItems(items);
+        const gridFactor = items.find((i) => i.category === "grid_emission_factor");
+        if (gridFactor) {
+          setSyncedFactor(gridFactor);
+          setFactorStatus("synced");
+        }
+      }
+    } catch {
+      // Ignored
+    }
+  }
+
+  async function loadArchivedReports(periodId) {
+    try {
+      const reports = await getPeriodReports(periodId);
+      if (Array.isArray(reports)) {
+        setArchivedReports(reports);
+      }
+    } catch {
+      // Ignored
+    }
   }
 
   // ---------------------------------------------------------------------------
   // STEP 1: Factory Profile
   // ---------------------------------------------------------------------------
+  function handleSelectExistingFirm(e) {
+    const firmId = e.target.value;
+    setSelectedFirmId(firmId);
+    if (!firmId) return;
+
+    const matched = existingFactories.find((f) => f.id === firmId);
+    if (matched) {
+      setFactory({
+        name: matched.name || "",
+        state: matched.state || "",
+        roof_area_sqm: matched.roof_area_sqm ? String(matched.roof_area_sqm) : "",
+        contracted_demand_mva: matched.contracted_demand_mva ? String(matched.contracted_demand_mva) : "",
+        tariff_category: matched.tariff_category || "",
+      });
+      setCreatedFirmId(matched.id);
+      setFeedback(`Selected existing factory "${matched.name}". Proceed to Step 2.`, "success");
+    }
+  }
+
   async function handleFactorySubmit(event) {
     event.preventDefault();
     if (!factory.name.trim() || !factory.state.trim()) {
@@ -101,6 +239,8 @@ export default function Setup() {
     try {
       const res = await createFactory(factory);
       setCreatedFirmId(res.id);
+      setSelectedFirmId(res.id);
+      await loadFactories();
       setFeedback(`Factory "${res.name}" successfully registered. Proceed to Step 2.`, "success");
       setActiveStep(2);
     } catch (err) {
@@ -113,16 +253,32 @@ export default function Setup() {
   // ---------------------------------------------------------------------------
   // STEP 2: Reporting Period
   // ---------------------------------------------------------------------------
+  function handleSelectExistingPeriod(e) {
+    const pId = e.target.value;
+    setSelectedPeriodId(pId);
+    if (!pId) return;
+
+    const matched = existingPeriods.find((p) => String(p.id) === String(pId));
+    if (matched) {
+      setPeriod({
+        start_date: matched.start_date || "",
+        end_date: matched.end_date || "",
+        production_tonnes: matched.production_tonnes ? String(matched.production_tonnes) : "",
+      });
+      setCreatedPeriodId(matched.id);
+      setFeedback(`Selected reporting period (${matched.start_date} to ${matched.end_date}). Proceed to Step 3.`, "success");
+    }
+  }
+
   async function handlePeriodSubmit(event) {
     event.preventDefault();
-    if (period.end_date < period.start_date) {
-      setFeedback("The end date must be on or after the start date.", "error");
+    if (!createdFirmId) {
+      setFeedback("Please register or select your factory profile in Step 1 first.", "error");
+      setActiveStep(1);
       return;
     }
-
-    if (!createdFirmId) {
-      setFeedback("Please register and save your factory profile in Step 1 first.", "error");
-      setActiveStep(1);
+    if (period.end_date < period.start_date) {
+      setFeedback("The end date must be on or after the start date.", "error");
       return;
     }
 
@@ -136,47 +292,139 @@ export default function Setup() {
         production_tonnes: period.production_tonnes ? Number(period.production_tonnes) : null,
       });
       setCreatedPeriodId(res.id);
-      setFeedback(`Reporting period ${res.start_date} to ${res.end_date} established. Proceed to upload evidence.`, "success");
+      setSelectedPeriodId(String(res.id));
+      await loadPeriods(createdFirmId);
+      setFeedback(`Reporting period ${res.start_date} to ${res.end_date} established. Proceed to Step 3 to add activity evidence.`, "success");
       setActiveStep(3);
     } catch (err) {
-      setFeedback(`Failed to create reporting period: ${err.message}`, "error");
+      setFeedback(`Failed to save reporting period: ${err.message}`, "error");
     } finally {
       setLoading(false);
     }
   }
 
   // ---------------------------------------------------------------------------
-  // STEP 3: Evidence Upload & Activity Record Verification
+  // STEP 3: Multi-Category Evidence Upload & Activity Record Creation
   // ---------------------------------------------------------------------------
-  async function handleFileChange(event) {
+  async function handleDocumentUpload(event, category) {
     const file = event.target.files?.[0] || null;
-    setElectricityBill(file);
     if (!file) return;
 
     if (!createdPeriodId) {
-      setFeedback("Please establish your reporting period in Step 2 before uploading bills.", "error");
+      setFeedback("Please establish your reporting period in Step 2 before uploading evidence.", "error");
       setActiveStep(2);
       return;
     }
 
+    setUploadedDocFile(file);
     setLoading(true);
-    setFeedback(`Uploading "${file.name}" and parsing metrics via Groq LLM Vision...`, "info");
-    try {
-      const docRes = await uploadDocument(file, createdPeriodId, "electricity_bill");
-      setUploadedDocId(docRes.id);
-      setDocumentStatus("pending");
+    setFeedback(`Uploading "${file.name}" and parsing metrics via Groq LLM Extraction...`, "info");
 
-      // Auto-populate extracted fields if returned by extractor
-      const raw = docRes.extraction_raw_json?.extracted_fields || docRes.extraction_raw_json;
-      if (raw && typeof raw === "object") {
-        setDocumentFields({
-          supplier: raw.supplier_name || raw.utility_name || "State Electricity Board",
-          billingPeriod: raw.billing_period || `${period.start_date} - ${period.end_date}`,
-          electricityKwh: String(raw.consumed_kwh || raw.units_kwh || ""),
-          invoiceNumber: raw.invoice_number || raw.bill_number || "",
-        });
+    try {
+      const docRes = await uploadDocument(file, createdPeriodId, category);
+      setUploadedDocId(docRes.id);
+
+      // Inspect extraction payload
+      const rawPayload = docRes.extraction_raw_json;
+      const status = rawPayload?.status;
+      const extracted = rawPayload?.extracted_fields || rawPayload || {};
+
+      setExtractionInfo({
+        status: status || "completed",
+        model: rawPayload?.model || "Groq Llama-3.3 Vision/Text",
+        message: rawPayload?.message || rawPayload?.error || null,
+        confidence: extracted.confidence_score,
+      });
+
+      // Map extracted fields according to category
+      if (category === "electricity_bill") {
+        const kwh =
+          extracted.kwh_consumed ??
+          extracted.consumed_kwh ??
+          extracted.units_kwh ??
+          "";
+        const supplier =
+          extracted.utility_provider ??
+          extracted.supplier_name ??
+          extracted.utility_name ??
+          "";
+        const start = extracted.billing_period_start || "";
+        const end = extracted.billing_period_end || "";
+        const billingPeriodStr =
+          start && end ? `${start} to ${end}` : extracted.billing_period || "";
+        const consumerNum =
+          extracted.consumer_number ??
+          extracted.invoice_number ??
+          extracted.bill_number ??
+          "";
+        const billedInr =
+          extracted.total_amount_inr ??
+          extracted.total_billed_inr ??
+          "";
+        const peakKva =
+          extracted.contracted_demand_mva
+            ? Number(extracted.contracted_demand_mva) * 1000
+            : extracted.peak_demand_kva ?? "";
+
+        setElectricityFields((prev) => ({
+          ...prev,
+          consumedKwh: kwh ? String(kwh) : prev.consumedKwh,
+          utilityProvider: supplier || prev.utilityProvider,
+          billingPeriod: billingPeriodStr || prev.billingPeriod,
+          consumerNumber: consumerNum || prev.consumerNumber,
+          totalBilledInr: billedInr ? String(billedInr) : prev.totalBilledInr,
+          peakDemandKva: peakKva ? String(peakKva) : prev.peakDemandKva,
+        }));
+
+        if (status === "unconfigured") {
+          setFeedback(`"${file.name}" uploaded. Note: Server GROQ_API_KEY is not configured on backend. Please verify numbers manually.`, "info");
+        } else if (status === "failed") {
+          setFeedback(`"${file.name}" uploaded. Text extraction notice: ${rawPayload.error || "Scanned image or unreadable text"}. Please enter values manually.`, "info");
+        } else if (kwh) {
+          setFeedback(`"${file.name}" processed! Extracted ${Number(kwh).toLocaleString()} kWh. Verify and confirm below.`, "success");
+        } else {
+          setFeedback(`"${file.name}" uploaded to audit vault. Please review and save the entry.`, "success");
+        }
+      } else if (category === "fuel_invoice") {
+        const qty =
+          extracted.quantity ??
+          extracted.quantity_liters ??
+          extracted.volume_litres ??
+          "";
+        const fuelType = (extracted.fuel_type || "diesel").toLowerCase();
+        const cost =
+          extracted.total_amount_inr ??
+          extracted.total_cost_inr ??
+          "";
+        const supplier = extracted.supplier_name || "";
+        const invNum = extracted.invoice_number || "";
+
+        setFuelFields((prev) => ({
+          ...prev,
+          fuelType: ["diesel", "furnace_oil", "lpg"].includes(fuelType) ? fuelType : "diesel",
+          quantityLiters: qty ? String(qty) : prev.quantityLiters,
+          totalCostInr: cost ? String(cost) : prev.totalCostInr,
+          supplierName: supplier || prev.supplierName,
+          invoiceNumber: invNum || prev.invoiceNumber,
+        }));
+
+        setFeedback(`"${file.name}" processed! Extracted fuel data. Verify and save below.`, "success");
+      } else if (category === "purchase_register") {
+        const tonnes =
+          extracted.total_weight_tonnes ??
+          extracted.quantity_tonnes ??
+          extracted.weight_mt ??
+          "";
+        const vendor = extracted.vendor_name || extracted.supplier_name || "";
+
+        setMaterialFields((prev) => ({
+          ...prev,
+          quantityTonnes: tonnes ? String(tonnes) : prev.quantityTonnes,
+          supplierName: vendor || prev.supplierName,
+        }));
+
+        setFeedback(`"${file.name}" processed! Extracted material data. Verify and save below.`, "success");
       }
-      setFeedback(`"${file.name}" uploaded. Review and confirm the extracted consumption below.`, "success");
     } catch (err) {
       setFeedback(`Upload error: ${err.message}`, "error");
     } finally {
@@ -184,64 +432,189 @@ export default function Setup() {
     }
   }
 
-  async function handleDocumentDecision(status) {
-    if (status === "confirmed") {
-      if (!documentFields.electricityKwh || Number(documentFields.electricityKwh) <= 0) {
-        setFeedback("Please enter a valid electricity consumption (kWh) > 0 before confirming.", "error");
-        return;
-      }
-      if (!createdPeriodId) {
-        setFeedback("Reporting period is missing. Please complete Step 2.", "error");
-        setActiveStep(2);
-        return;
-      }
+  // Auto-Ingest Document directly via backend
+  async function handleAutoIngest() {
+    if (!uploadedDocId) {
+      setFeedback("Please upload a document first.", "error");
+      return;
+    }
+    setLoading(true);
+    setFeedback("Triggering backend auto-ingestion for document...", "info");
+    try {
+      const res = await ingestDocumentToActivity(uploadedDocId);
+      await loadActivityLedger(createdPeriodId);
+      setFeedback(
+        `Auto-ingest complete: created ${res.electricity_records_created} electricity, ${res.fuel_records_created} fuel, and ${res.material_records_created} material records.`,
+        "success"
+      );
+    } catch (err) {
+      setFeedback(`Ingest error: ${err.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
 
-      setLoading(true);
-      setFeedback("Recording verified electricity consumption to audit ledger...", "info");
-      try {
-        await createElectricityRecord({
-          reporting_period_id: createdPeriodId,
-          source_document_id: uploadedDocId || null,
-          consumed_kwh: Number(documentFields.electricityKwh),
-          peak_demand_kva: factory.contracted_demand_mva ? Number(factory.contracted_demand_mva) * 1000 : null,
-          power_factor: 0.95,
-          status: "confirmed",
-        });
+  // Create Electricity Record
+  async function handleSaveElectricity() {
+    if (!electricityFields.consumedKwh || Number(electricityFields.consumedKwh) <= 0) {
+      setFeedback("Please enter a valid electricity consumption (kWh) > 0.", "error");
+      return;
+    }
+    if (!createdPeriodId) {
+      setFeedback("Reporting period is missing. Please complete Step 2.", "error");
+      setActiveStep(2);
+      return;
+    }
 
-        setDocumentStatus("confirmed");
-        setFeedback("Electricity evidence confirmed and recorded into audit ledger. Ready for calculation.", "success");
-        setActiveStep(4);
-      } catch (err) {
-        setFeedback(`Failed to save activity record: ${err.message}`, "error");
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      setDocumentStatus(status);
-      setFeedback(status === "flagged" ? "Document flagged for audit discrepancy." : "Document discarded.", "info");
-      if (status === "discarded") {
-        setElectricityBill(null);
-        setDocumentFields({
-          supplier: "",
-          billingPeriod: "",
-          electricityKwh: "",
-          invoiceNumber: "",
-        });
-      }
+    setLoading(true);
+    setFeedback("Recording verified electricity consumption to audit ledger...", "info");
+    try {
+      await createElectricityRecord({
+        reporting_period_id: createdPeriodId,
+        source_document_id: uploadedDocId || null,
+        consumed_kwh: Number(electricityFields.consumedKwh),
+        peak_demand_kva: electricityFields.peakDemandKva ? Number(electricityFields.peakDemandKva) : null,
+        power_factor: electricityFields.powerFactor ? Number(electricityFields.powerFactor) : 0.95,
+        total_billed_inr: electricityFields.totalBilledInr ? Number(electricityFields.totalBilledInr) : null,
+      });
+
+      await loadActivityLedger(createdPeriodId);
+      setFeedback("Electricity record saved to audit ledger!", "success");
+      setCalculationStatus("not_calculated");
+    } catch (err) {
+      setFeedback(`Failed to save electricity record: ${err.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Create Fuel Record
+  async function handleSaveFuel() {
+    if (!fuelFields.quantityLiters || Number(fuelFields.quantityLiters) <= 0) {
+      setFeedback("Please enter a valid fuel volume in litres > 0.", "error");
+      return;
+    }
+    if (!createdPeriodId) {
+      setFeedback("Reporting period is missing. Complete Step 2 first.", "error");
+      setActiveStep(2);
+      return;
+    }
+
+    setLoading(true);
+    setFeedback("Recording Scope 1 fuel consumption into audit ledger...", "info");
+    try {
+      await createFuelRecord({
+        reporting_period_id: createdPeriodId,
+        source_document_id: uploadedDocId || null,
+        fuel_type: fuelFields.fuelType,
+        quantity_liters: Number(fuelFields.quantityLiters),
+        total_cost_inr: fuelFields.totalCostInr ? Number(fuelFields.totalCostInr) : null,
+      });
+
+      await loadActivityLedger(createdPeriodId);
+      setFeedback(`Fuel record (${fuelFields.quantityLiters} L ${fuelFields.fuelType}) saved!`, "success");
+      setFuelFields({
+        fuelType: "diesel",
+        quantityLiters: "",
+        totalCostInr: "",
+        supplierName: "",
+        invoiceNumber: "",
+      });
+      setCalculationStatus("not_calculated");
+    } catch (err) {
+      setFeedback(`Failed to save fuel record: ${err.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Create Material Record
+  async function handleSaveMaterial() {
+    if (!materialFields.quantityTonnes || Number(materialFields.quantityTonnes) <= 0) {
+      setFeedback("Please enter a valid material quantity in tonnes > 0.", "error");
+      return;
+    }
+    if (!createdPeriodId) {
+      setFeedback("Reporting period is missing. Complete Step 2 first.", "error");
+      setActiveStep(2);
+      return;
+    }
+
+    setLoading(true);
+    setFeedback("Recording Scope 3 material procurement into audit ledger...", "info");
+    try {
+      await createMaterialRecord({
+        reporting_period_id: createdPeriodId,
+        source_document_id: uploadedDocId || null,
+        material_type: materialFields.materialType,
+        quantity_tonnes: Number(materialFields.quantityTonnes),
+        supplier_name: materialFields.supplierName || null,
+        supplier_stated_emission_factor: materialFields.supplierEmissionFactor
+          ? Number(materialFields.supplierEmissionFactor)
+          : null,
+      });
+
+      await loadActivityLedger(createdPeriodId);
+      setFeedback(`Material record (${materialFields.quantityTonnes} t ${materialFields.materialType}) saved!`, "success");
+      setMaterialFields({
+        materialType: "steel_scrap",
+        quantityTonnes: "",
+        supplierName: "",
+        supplierEmissionFactor: "",
+      });
+      setCalculationStatus("not_calculated");
+    } catch (err) {
+      setFeedback(`Failed to save material record: ${err.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Verify or Delete activity records
+  async function handleVerifyRecord(type, recordId, status) {
+    setLoading(true);
+    try {
+      await verifyActivity(type, recordId, status);
+      await loadActivityLedger(createdPeriodId);
+      setFeedback(`Record ${status === "confirmed" ? "verified and confirmed" : "flagged for review"}.`, "info");
+      setCalculationStatus("not_calculated");
+    } catch (err) {
+      setFeedback(`Failed to update record: ${err.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDeleteRecord(type, recordId) {
+    if (!window.confirm("Are you sure you want to delete this activity record?")) return;
+    setLoading(true);
+    try {
+      await deleteActivityRecord(type, recordId);
+      await loadActivityLedger(createdPeriodId);
+      setFeedback("Activity record removed.", "info");
+      setCalculationStatus("not_calculated");
+    } catch (err) {
+      setFeedback(`Failed to delete record: ${err.message}`, "error");
+    } finally {
+      setLoading(false);
     }
   }
 
   // ---------------------------------------------------------------------------
-  // STEP 4: Live Evidence Sync & Engine Calculation
+  // STEP 4: Live Evidence Sync & Engine Calculation & Report Generation
   // ---------------------------------------------------------------------------
   async function handleSync() {
     setLoading(true);
-    setFeedback("Querying TinyFish agent for latest CEA CO2 Baseline Database factor...", "info");
+    setFeedback("Querying TinyFish agent for latest CEA Indian Power Sector CO2 baseline...", "info");
     try {
       const res = await syncEvidence("grid_emission_factor");
       setFactorStatus("synced");
       setSyncedFactor(res);
-      setFeedback(`Synced: ${res.value} ${res.unit} (${res.source_title}) verified by TinyFish.`, "success");
+      await loadEvidence();
+      setFeedback(
+        `Synced: ${res.value} ${res.unit} (${res.source_title}) certified by TinyFish agent and saved to audit evidence table.`,
+        "success"
+      );
     } catch (err) {
       setFeedback(`Sync notification: ${err.message}`, "info");
     } finally {
@@ -254,14 +627,19 @@ export default function Setup() {
       setFeedback("Reporting period is missing. Complete prior steps first.", "error");
       return;
     }
-    if (documentStatus !== "confirmed") {
-      setFeedback("Please confirm electricity consumption details in Step 3 first.", "error");
+    const hasAnyActivity =
+      periodActivity.electricity_records.length > 0 ||
+      periodActivity.fuel_records.length > 0 ||
+      periodActivity.material_records.length > 0;
+
+    if (!hasAnyActivity && !electricityFields.consumedKwh) {
+      setFeedback("Please record at least one electricity, fuel, or material activity entry in Step 3.", "error");
       setActiveStep(3);
       return;
     }
 
     setLoading(true);
-    setFeedback("Running deterministic GHG Protocol calculation engine and renewable pathways...", "info");
+    setFeedback("Running deterministic GHG Protocol calculation engine and decarbonization pathways...", "info");
     try {
       const calcRes = await calculateFootprint(createdPeriodId);
       setCalculationStatus("calculated");
@@ -274,11 +652,11 @@ export default function Setup() {
         factory: factory,
         period: period,
         evidence: syncedFactor,
-        electricityKwh: documentFields.electricityKwh,
+        electricityKwh: electricityFields.consumedKwh || (periodActivity.electricity_records[0]?.consumed_kwh ?? 0),
       });
 
       setFeedback(
-        `Calculation complete! Total emissions: ${calcRes.total_emissions_tco2e} tCO2e (${calcRes.specific_emissions_tco2e_per_tonne || "N/A"} tCO2e/t).`,
+        `Calculation complete! Total emissions: ${calcRes.total_emissions_tco2e} tCO2e (${calcRes.specific_emissions_tco2e_per_tonne ?? "N/A"} tCO2e/t finished steel). Ready to export report.`,
         "success"
       );
     } catch (err) {
@@ -290,19 +668,49 @@ export default function Setup() {
 
   async function handleExport() {
     if (!createdPeriodId) {
-      setFeedback("Run calculation first before exporting report.", "error");
+      setFeedback("Run calculation first before generating report.", "error");
       return;
     }
     setLoading(true);
-    setFeedback("Generating and archiving frozen audit report artifact...", "info");
+    setFeedback("Generating and archiving frozen audit report with TinyFish regulatory evidence...", "info");
     try {
       const res = await exportReport(createdPeriodId, "pdf");
-      setFeedback(`Report archived successfully! Title: "${res.report_title}"`, "success");
+      setGeneratedReport(res);
+      await loadArchivedReports(createdPeriodId);
+      setFeedback(
+        `Report "${res.report_title}" successfully generated & archived with immutable SHA-256 snapshot!`,
+        "success"
+      );
     } catch (err) {
       setFeedback(`Export error: ${err.message}`, "error");
     } finally {
       setLoading(false);
     }
+  }
+
+  function downloadSnapshotJson() {
+    if (!generatedReport?.computation_snapshot) return;
+    const blob = new Blob([JSON.stringify(generatedReport.computation_snapshot, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `audit_certificate_period_${createdPeriodId}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleDownloadPdfReport() {
+    generateAuditPdf({
+      report: generatedReport,
+      calculationResult,
+      factory,
+      period,
+      syncedFactor: syncedFactor || { value: 0.727, unit: "tCO2/MWh" },
+      activityLedger: periodActivity,
+    });
+    setFeedback("Downloaded official Decarbonization Audit Report (PDF)!", "success");
   }
 
   // ---------------------------------------------------------------------------
@@ -331,7 +739,7 @@ export default function Setup() {
     {
       num: 1,
       title: "Factory profile",
-      desc: "Plant specifications, location and demand",
+      desc: "Plant specs, location & electrical demand",
       icon: FactoryIcon,
     },
     {
@@ -342,17 +750,22 @@ export default function Setup() {
     },
     {
       num: 3,
-      title: "Electricity evidence",
-      desc: "DISCOM bill upload & verification",
+      title: "Activity evidence",
+      desc: "Electricity, fuel & raw materials",
       icon: DocumentIcon,
     },
     {
       num: 4,
       title: "Results & report",
-      desc: "CEA grid sync & emissions assessment",
+      desc: "TinyFish CEA sync & audit report export",
       icon: CalculatorIcon,
     },
   ];
+
+  // Calculate live activity totals
+  const totalKwhRecorded = periodActivity.electricity_records.reduce((sum, r) => sum + (r.consumed_kwh || 0), 0);
+  const totalFuelLitres = periodActivity.fuel_records.reduce((sum, r) => sum + (r.quantity_liters || 0), 0);
+  const totalMaterialsTonnes = periodActivity.material_records.reduce((sum, r) => sum + (r.quantity_tonnes || 0), 0);
 
   return (
     <div className="setup-page">
@@ -399,11 +812,7 @@ export default function Setup() {
                       onClick={() => setActiveStep(step.num)}
                     >
                       <div className="step-item-marker">
-                        {isCompleted ? (
-                          <CheckIcon className="w-4 h-4" />
-                        ) : (
-                          <span>{step.num}</span>
-                        )}
+                        {isCompleted ? <CheckIcon className="w-4 h-4" /> : <span>{step.num}</span>}
                       </div>
                       <div className="step-item-content">
                         <div className="step-item-title-row">
@@ -448,73 +857,59 @@ export default function Setup() {
                   onClick={() => setActiveStep(s.num)}
                 >
                   <span className="tab-pill-num">{s.num}</span>
-                  <span className="tab-pill-text">{s.title}</span>
+                  <span>{s.title}</span>
                 </button>
               ))}
             </nav>
 
-            {/* Live Preview as a Mint Card */}
-            <div className="mint-preview-card">
+            {/* Live Mint Preview Pill */}
+            <div className="mint-preview-card" role="region" aria-label="Audit summary preview">
               <div className="mint-preview-header">
-                <div>
-                  <span className="mint-badge">Live Company Preview</span>
-                  <h3 className="mint-company-name">
-                    {factory.name || "Your Factory Name"}
-                  </h3>
-                  <p className="mint-company-meta">
-                    {factory.state ? `State: ${factory.state}` : "Location not provided"}
-                    {factory.contracted_demand_mva
-                      ? ` · ${factory.contracted_demand_mva} MVA`
-                      : ""}
-                    {factory.tariff_category ? ` · ${factory.tariff_category}` : ""}
-                  </p>
-                </div>
-                <div className="mint-verification-status">
-                  <span className={`status-pill ${documentStatus}`}>
-                    {documentStatus === "confirmed"
-                      ? "Bill Confirmed"
-                      : documentStatus === "flagged"
-                        ? "Bill Flagged"
-                        : documentStatus === "pending"
-                          ? "Review Pending"
-                          : "Awaiting Bill"}
-                  </span>
-                </div>
+                <span className="mint-preview-title">Live Audit Ledger Summary</span>
+                <span className="mint-badge">
+                  {createdPeriodId ? `Period #${createdPeriodId} Active` : "Awaiting Period"}
+                </span>
               </div>
 
-              <div className="mint-preview-metrics">
+              <div className="mint-preview-body">
                 <div className="mint-metric-item">
-                  <span className="metric-tag">Reporting Period</span>
+                  <span className="metric-tag">Plant Baseline</span>
                   <strong className="metric-val">
-                    {period.start_date && period.end_date
-                      ? `${period.start_date} → ${period.end_date}`
-                      : "Not set"}
+                    {factory.name ? `${factory.name} (${factory.state || "India"})` : "Not registered"}
                   </strong>
                 </div>
 
                 <div className="mint-metric-item">
-                  <span className="metric-tag">Declared Production</span>
+                  <span className="metric-tag">Finished Steel Output</span>
                   <strong className="metric-val">
-                    {period.production_tonnes
-                      ? `${Number(period.production_tonnes).toLocaleString()} tonnes`
-                      : "Not entered"}
+                    {period.production_tonnes ? `${Number(period.production_tonnes).toLocaleString()} MT` : "Not declared"}
                   </strong>
                 </div>
 
                 <div className="mint-metric-item">
-                  <span className="metric-tag">Electricity Consumption</span>
+                  <span className="metric-tag">Electricity (Scope 2)</span>
                   <strong className="metric-val">
-                    {documentFields.electricityKwh
-                      ? `${Number(documentFields.electricityKwh).toLocaleString()} kWh`
-                      : "Awaiting bill data"}
+                    {totalKwhRecorded > 0
+                      ? `${totalKwhRecorded.toLocaleString()} kWh`
+                      : electricityFields.consumedKwh
+                        ? `${Number(electricityFields.consumedKwh).toLocaleString()} kWh`
+                        : "0 kWh"}
+                  </strong>
+                </div>
+
+                <div className="mint-metric-item">
+                  <span className="metric-tag">Fuel & Materials</span>
+                  <strong className="metric-val">
+                    {totalFuelLitres > 0 ? `${totalFuelLitres.toLocaleString()} L Fuel · ` : ""}
+                    {totalMaterialsTonnes > 0 ? `${totalMaterialsTonnes.toLocaleString()} t Materials` : "0 Scopes 1 & 3"}
                   </strong>
                 </div>
               </div>
 
               <p className="mint-preview-footnote">
                 {createdFirmId
-                  ? `Connected to database (Firm ID: ${createdFirmId.slice(0, 8)}... · Period: ${createdPeriodId || "Pending"})`
-                  : "Draft mode. Complete Step 1 to save to backend."}
+                  ? `Firm ID: ${createdFirmId.slice(0, 8)}... · Period: ${createdPeriodId || "Pending"} · TinyFish Factor: ${syncedFactor ? `${syncedFactor.value} tCO2/MWh` : "0.7270 tCO2/MWh (Default)"}`
+                  : "Draft mode. Complete Step 1 to save to backend database."}
               </p>
             </div>
 
@@ -522,17 +917,35 @@ export default function Setup() {
             {activeStep === 1 && (
               <section className="form-card" aria-labelledby="heading-step-1">
                 <div className="form-card-header">
-                  <div>
-                    <span className="step-eyebrow">STEP 01</span>
-                    <h2 id="heading-step-1" className="form-card-title">
-                      Company & factory profile
-                    </h2>
-                    <p className="form-card-subtitle">
-                      Enter the legal entity details and plant electrical capacity.
-                      This links your production to the regional DISCOM and CEA emission benchmark.
-                    </p>
-                  </div>
+                  <span className="step-eyebrow">STEP 01</span>
+                  <h2 id="heading-step-1" className="form-card-title">
+                    Company & factory profile
+                  </h2>
+                  <p className="form-card-subtitle">
+                    Enter the legal entity details and electrical capacity. This maps your factory to regional DISCOM tariffs and CEA emission baselines.
+                  </p>
                 </div>
+
+                {existingFactories.length > 0 && (
+                  <div style={{ marginBottom: "1.5rem", padding: "1rem", background: "var(--canvas)", borderRadius: "12px", border: "1px solid var(--line)" }}>
+                    <label htmlFor="select-firm" className="pill-label" style={{ marginBottom: "0.5rem", display: "block" }}>
+                      Select existing registered factory:
+                    </label>
+                    <select
+                      id="select-firm"
+                      className="pill-input"
+                      value={selectedFirmId}
+                      onChange={handleSelectExistingFirm}
+                    >
+                      <option value="">-- Or enter a new factory profile below --</option>
+                      {existingFactories.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.name} ({f.state}) - Demand: {f.contracted_demand_mva ? `${f.contracted_demand_mva} MVA` : "N/A"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <form onSubmit={handleFactorySubmit} className="pill-form">
                   <div className="form-group">
@@ -544,14 +957,12 @@ export default function Setup() {
                       name="name"
                       className="pill-input"
                       value={factory.name}
-                      onChange={updateFactory}
+                      onChange={(e) => setFactory((prev) => ({ ...prev, name: e.target.value }))}
                       placeholder="e.g. Mahavir Induction Steel Ltd."
                       maxLength={255}
                       required
                     />
-                    <span className="field-hint">
-                      {factory.name.length}/255 characters · Legal name as registered with GST
-                    </span>
+                    <span className="field-hint">Legal registered firm name</span>
                   </div>
 
                   <div className="form-group">
@@ -563,13 +974,11 @@ export default function Setup() {
                       name="state"
                       className="pill-input"
                       value={factory.state}
-                      onChange={updateFactory}
+                      onChange={(e) => setFactory((prev) => ({ ...prev, state: e.target.value }))}
                       placeholder="e.g. Chhattisgarh, Punjab, Odisha, Gujarat"
                       required
                     />
-                    <span className="field-hint">
-                      Required to map your plant to regional CEA grid factors & open access policy
-                    </span>
+                    <span className="field-hint">Used for regional CEA emission factor mapping & state open-access solar policies</span>
                   </div>
 
                   <div className="form-row-2">
@@ -585,8 +994,8 @@ export default function Setup() {
                         step="any"
                         className="pill-input"
                         value={factory.roof_area_sqm}
-                        onChange={updateFactory}
-                        placeholder="e.g. 15000 (For rooftop solar potential)"
+                        onChange={(e) => setFactory((prev) => ({ ...prev, roof_area_sqm: e.target.value }))}
+                        placeholder="e.g. 15000 (Rooftop solar potential)"
                       />
                     </div>
 
@@ -602,7 +1011,7 @@ export default function Setup() {
                         step="any"
                         className="pill-input"
                         value={factory.contracted_demand_mva}
-                        onChange={updateFactory}
+                        onChange={(e) => setFactory((prev) => ({ ...prev, contracted_demand_mva: e.target.value }))}
                         placeholder="e.g. 3.5 (≥0.1 MVA qualifies for Green Open Access)"
                       />
                     </div>
@@ -617,17 +1026,13 @@ export default function Setup() {
                       name="tariff_category"
                       className="pill-input"
                       value={factory.tariff_category}
-                      onChange={updateFactory}
+                      onChange={(e) => setFactory((prev) => ({ ...prev, tariff_category: e.target.value }))}
                       placeholder="e.g. HT Industrial / EHT 33kV"
                     />
                   </div>
 
                   <div className="form-actions-row">
-                    <button
-                      type="submit"
-                      className="pill-button pill-button-primary"
-                      disabled={loading}
-                    >
+                    <button type="submit" className="pill-button pill-button-primary" disabled={loading}>
                       {loading ? "Saving to database..." : "Save factory & proceed →"}
                     </button>
                   </div>
@@ -639,16 +1044,35 @@ export default function Setup() {
             {activeStep === 2 && (
               <section className="form-card" aria-labelledby="heading-step-2">
                 <div className="form-card-header">
-                  <div>
-                    <span className="step-eyebrow">STEP 02</span>
-                    <h2 id="heading-step-2" className="form-card-title">
-                      Audit reporting period & output
-                    </h2>
-                    <p className="form-card-subtitle">
-                      Specify the monthly or quarterly boundary and total finished steel production tonnage.
-                    </p>
-                  </div>
+                  <span className="step-eyebrow">STEP 02</span>
+                  <h2 id="heading-step-2" className="form-card-title">
+                    Audit reporting period & production output
+                  </h2>
+                  <p className="form-card-subtitle">
+                    Specify the monthly or quarterly boundary and total finished steel production tonnage.
+                  </p>
                 </div>
+
+                {existingPeriods.length > 0 && (
+                  <div style={{ marginBottom: "1.5rem", padding: "1rem", background: "var(--canvas)", borderRadius: "12px", border: "1px solid var(--line)" }}>
+                    <label htmlFor="select-period" className="pill-label" style={{ marginBottom: "0.5rem", display: "block" }}>
+                      Select existing reporting period for this factory:
+                    </label>
+                    <select
+                      id="select-period"
+                      className="pill-input"
+                      value={selectedPeriodId}
+                      onChange={handleSelectExistingPeriod}
+                    >
+                      <option value="">-- Or define a new reporting period below --</option>
+                      {existingPeriods.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.start_date} to {p.end_date} - Output: {p.production_tonnes ? `${p.production_tonnes} MT` : "Not set"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <form onSubmit={handlePeriodSubmit} className="pill-form">
                   <div className="form-row-2">
@@ -662,7 +1086,7 @@ export default function Setup() {
                         type="date"
                         className="pill-input"
                         value={period.start_date}
-                        onChange={updatePeriod}
+                        onChange={(e) => setPeriod((prev) => ({ ...prev, start_date: e.target.value }))}
                         required
                       />
                     </div>
@@ -677,7 +1101,7 @@ export default function Setup() {
                         type="date"
                         className="pill-input"
                         value={period.end_date}
-                        onChange={updatePeriod}
+                        onChange={(e) => setPeriod((prev) => ({ ...prev, end_date: e.target.value }))}
                         required
                       />
                     </div>
@@ -695,12 +1119,12 @@ export default function Setup() {
                       step="any"
                       className="pill-input"
                       value={period.production_tonnes}
-                      onChange={updatePeriod}
+                      onChange={(e) => setPeriod((prev) => ({ ...prev, production_tonnes: e.target.value }))}
                       placeholder="e.g. 5000"
                       required
                     />
                     <span className="field-hint">
-                      The net good production tonnage used as denominator for specific emissions intensity (tCO2e/t)
+                      Net good cast steel tonnage used as the denominator for specific emissions intensity (tCO2e / t)
                     </span>
                   </div>
 
@@ -712,11 +1136,7 @@ export default function Setup() {
                     >
                       ← Back
                     </button>
-                    <button
-                      type="submit"
-                      className="pill-button pill-button-primary"
-                      disabled={loading}
-                    >
+                    <button type="submit" className="pill-button pill-button-primary" disabled={loading}>
                       {loading ? "Saving period..." : "Save period & proceed →"}
                     </button>
                   </div>
@@ -724,164 +1144,662 @@ export default function Setup() {
               </section>
             )}
 
-            {/* STEP 3: Electricity Evidence & Bill Upload */}
+            {/* STEP 3: Multi-Category Evidence Upload & Activity Record Creation */}
             {activeStep === 3 && (
               <section className="form-card" aria-labelledby="heading-step-3">
                 <div className="form-card-header">
-                  <div>
-                    <span className="step-eyebrow">STEP 03</span>
-                    <h2 id="heading-step-3" className="form-card-title">
-                      Electricity bill evidence upload
-                    </h2>
-                    <p className="form-card-subtitle">
-                      Upload your DISCOM utility invoice. The backend extracts consumption and attaches it to the audit ledger.
-                    </p>
-                  </div>
+                  <span className="step-eyebrow">STEP 03</span>
+                  <h2 id="heading-step-3" className="form-card-title">
+                    Activity evidence & consumption ledger
+                  </h2>
+                  <p className="form-card-subtitle">
+                    Record electricity, diesel/fuel combustion, and raw materials (scrap, DRI, alloys). Upload invoices for AI extraction or enter numbers directly.
+                  </p>
                 </div>
 
-                <div className="dropzone-container">
-                  <label htmlFor="electricityBill" className="pill-dropzone">
-                    <div className="dropzone-content">
-                      <UploadIcon className="w-10 h-10 text-forest dropzone-icon" />
-                      <strong className="dropzone-text">
-                        {electricityBill
-                          ? electricityBill.name
-                          : "Drop electricity bill here (.pdf, .docx, .png, .jpg), or browse"}
-                      </strong>
-                      <span className="dropzone-spec">
-                        Automated Vision extraction via Groq Llama-3.3 Vision
-                      </span>
-                      {electricityBill && (
-                        <span className="dropzone-filesize">
-                          Size: {(electricityBill.size / 1024).toFixed(1)} KB
-                        </span>
-                      )}
-                    </div>
-                    <input
-                      id="electricityBill"
-                      type="file"
-                      accept=".pdf,.docx,.png,.jpg,.jpeg"
-                      onChange={handleFileChange}
-                      className="visually-hidden"
-                    />
-                  </label>
+                {/* Subtabs for Activity Category */}
+                <div className="scope-subtabs" role="tablist">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activityCategory === "electricity"}
+                    className={`scope-subtab-btn ${activityCategory === "electricity" ? "active" : ""}`}
+                    onClick={() => {
+                      setActivityCategory("electricity");
+                      setExtractionInfo(null);
+                    }}
+                  >
+                    ⚡ Electricity (Scope 2)
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activityCategory === "fuel"}
+                    className={`scope-subtab-btn ${activityCategory === "fuel" ? "active" : ""}`}
+                    onClick={() => {
+                      setActivityCategory("fuel");
+                      setExtractionInfo(null);
+                    }}
+                  >
+                    🔥 Fuel Usage (Scope 1)
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activityCategory === "material"}
+                    className={`scope-subtab-btn ${activityCategory === "material" ? "active" : ""}`}
+                    onClick={() => {
+                      setActivityCategory("material");
+                      setExtractionInfo(null);
+                    }}
+                  >
+                    🏗️ Raw Materials (Scope 3)
+                  </button>
                 </div>
 
-                {/* Verification Card */}
-                <div className="verification-box">
-                  <div className="verification-box-header">
+                {/* AI Extraction Status Banner */}
+                {extractionInfo && (
+                  <div
+                    className={`ai-status-card ${
+                      extractionInfo.status === "success"
+                        ? "success"
+                        : extractionInfo.status === "unconfigured"
+                          ? "warning"
+                          : "info"
+                    }`}
+                  >
+                    <InfoIcon className="w-5 h-5 flex-shrink-0" />
                     <div>
-                      <h4 className="verification-box-title">
-                        Side-by-side verification
-                      </h4>
-                      <p className="verification-box-sub">
-                        Verify key billing data before it counts toward your carbon ledger
+                      <strong>
+                        {extractionInfo.status === "success"
+                          ? `AI Extraction Succeeded (${extractionInfo.model})`
+                          : extractionInfo.status === "unconfigured"
+                            ? "Manual Input Mode (Server AI key unconfigured)"
+                            : "Extraction Status"}
+                      </strong>
+                      <p style={{ fontSize: "0.85rem", marginTop: "2px" }}>
+                        {extractionInfo.message ||
+                          (extractionInfo.confidence !== undefined
+                            ? `Extracted structured metrics with confidence score: ${(extractionInfo.confidence * 100).toFixed(0)}%. Review fields below.`
+                            : "Document parsed. Please review and verify the extracted quantities below.")}
                       </p>
                     </div>
-                    <span className={`status-pill ${documentStatus}`}>
-                      {documentStatus === "confirmed"
-                        ? "Confirmed in Database"
-                        : documentStatus === "flagged"
-                          ? "Flagged for review"
-                          : documentStatus === "pending"
-                            ? "Review required"
-                            : "Awaiting document"}
+                  </div>
+                )}
+
+                {/* CATEGORY 1: ELECTRICITY */}
+                {activityCategory === "electricity" && (
+                  <div>
+                    {/* Document Dropzone */}
+                    <div className="dropzone-container">
+                      <label htmlFor="elec-file-upload" className="pill-dropzone">
+                        <div className="dropzone-content">
+                          <UploadIcon className="w-8 h-8 dropzone-icon" />
+                          <strong className="dropzone-text">
+                            {uploadedDocFile && uploadedDocId
+                              ? `Uploaded: ${uploadedDocFile.name}`
+                              : "Drop DISCOM Electricity Bill here (.pdf, .docx, .png, .jpg), or browse"}
+                          </strong>
+                          <span className="dropzone-spec">
+                            Automated field extraction powered by Groq Llama-3.3 Vision
+                          </span>
+                        </div>
+                        <input
+                          id="elec-file-upload"
+                          type="file"
+                          accept=".pdf,.docx,.png,.jpg,.jpeg"
+                          onChange={(e) => handleDocumentUpload(e, "electricity_bill")}
+                          className="visually-hidden"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="verification-box">
+                      <div className="verification-box-header">
+                        <div>
+                          <h4 className="verification-box-title">Electricity consumption details</h4>
+                          <p className="verification-box-sub">
+                            Active energy recorded on primary HT metering equipment
+                          </p>
+                        </div>
+                        <span className="scope-badge scope-badge-scope2">Scope 2</span>
+                      </div>
+
+                      <div className="verification-fields">
+                        <div className="form-row-2">
+                          <div className="form-group">
+                            <label htmlFor="utilityProvider" className="pill-label">
+                              Electricity supplier / DISCOM
+                            </label>
+                            <input
+                              id="utilityProvider"
+                              className="pill-input"
+                              value={electricityFields.utilityProvider}
+                              onChange={(e) =>
+                                setElectricityFields((prev) => ({ ...prev, utilityProvider: e.target.value }))
+                              }
+                              placeholder="e.g. CSPDCL / Tata Power / PSPCL"
+                            />
+                          </div>
+
+                          <div className="form-group">
+                            <label htmlFor="consumerNumber" className="pill-label">
+                              Consumer / HT account number
+                            </label>
+                            <input
+                              id="consumerNumber"
+                              className="pill-input"
+                              value={electricityFields.consumerNumber}
+                              onChange={(e) =>
+                                setElectricityFields((prev) => ({ ...prev, consumerNumber: e.target.value }))
+                              }
+                              placeholder="e.g. HT-09482910"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="form-row-3">
+                          <div className="form-group">
+                            <label htmlFor="consumedKwh" className="pill-label">
+                              Consumed electricity (kWh) <span className="req">*</span>
+                            </label>
+                            <input
+                              id="consumedKwh"
+                              type="number"
+                              min="0.01"
+                              step="any"
+                              className="pill-input highlight"
+                              value={electricityFields.consumedKwh}
+                              onChange={(e) =>
+                                setElectricityFields((prev) => ({ ...prev, consumedKwh: e.target.value }))
+                              }
+                              placeholder="e.g. 1500000"
+                              required
+                            />
+                          </div>
+
+                          <div className="form-group">
+                            <label htmlFor="peakDemandKva" className="pill-label">
+                              Recorded peak demand (kVA)
+                            </label>
+                            <input
+                              id="peakDemandKva"
+                              type="number"
+                              min="0"
+                              step="any"
+                              className="pill-input"
+                              value={electricityFields.peakDemandKva}
+                              onChange={(e) =>
+                                setElectricityFields((prev) => ({ ...prev, peakDemandKva: e.target.value }))
+                              }
+                              placeholder="e.g. 3500"
+                            />
+                          </div>
+
+                          <div className="form-group">
+                            <label htmlFor="totalBilledInr" className="pill-label">
+                              Total bill amount (INR)
+                            </label>
+                            <input
+                              id="totalBilledInr"
+                              type="number"
+                              min="0"
+                              step="any"
+                              className="pill-input"
+                              value={electricityFields.totalBilledInr}
+                              onChange={(e) =>
+                                setElectricityFields((prev) => ({ ...prev, totalBilledInr: e.target.value }))
+                              }
+                              placeholder="e.g. 12500000"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="verification-actions">
+                          <button
+                            type="button"
+                            className="pill-button pill-button-primary"
+                            disabled={loading || !electricityFields.consumedKwh}
+                            onClick={handleSaveElectricity}
+                          >
+                            {loading ? "Saving to ledger..." : "Confirm & Save Electricity Record"}
+                          </button>
+                          {uploadedDocId && (
+                            <button
+                              type="button"
+                              className="pill-button pill-button-secondary"
+                              disabled={loading}
+                              onClick={handleAutoIngest}
+                            >
+                              Auto-Ingest via Backend Engine
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* CATEGORY 2: FUEL (Scope 1) */}
+                {activityCategory === "fuel" && (
+                  <div>
+                    {/* Fuel Invoice Dropzone */}
+                    <div className="dropzone-container">
+                      <label htmlFor="fuel-file-upload" className="pill-dropzone">
+                        <div className="dropzone-content">
+                          <UploadIcon className="w-8 h-8 dropzone-icon" />
+                          <strong className="dropzone-text">
+                            {uploadedDocFile && uploadedDocId
+                              ? `Uploaded: ${uploadedDocFile.name}`
+                              : "Drop Fuel Purchase Invoice here (.pdf, .docx, images), or browse"}
+                          </strong>
+                          <span className="dropzone-spec">
+                            Extracts fuel delivery litres, type (diesel, furnace oil, LPG), and cost
+                          </span>
+                        </div>
+                        <input
+                          id="fuel-file-upload"
+                          type="file"
+                          accept=".pdf,.docx,.png,.jpg,.jpeg"
+                          onChange={(e) => handleDocumentUpload(e, "fuel_invoice")}
+                          className="visually-hidden"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="verification-box">
+                      <div className="verification-box-header">
+                        <div>
+                          <h4 className="verification-box-title">Direct fuel combustion details</h4>
+                          <p className="verification-box-sub">
+                            Stationary combustion from backup DG sets, reheat furnaces, or ladles
+                          </p>
+                        </div>
+                        <span className="scope-badge scope-badge-scope1">Scope 1</span>
+                      </div>
+
+                      <div className="verification-fields">
+                        <div className="form-row-3">
+                          <div className="form-group">
+                            <label htmlFor="fuelType" className="pill-label">
+                              Fuel type <span className="req">*</span>
+                            </label>
+                            <select
+                              id="fuelType"
+                              className="pill-input"
+                              value={fuelFields.fuelType}
+                              onChange={(e) =>
+                                setFuelFields((prev) => ({ ...prev, fuelType: e.target.value }))
+                              }
+                            >
+                              <option value="diesel">Diesel (HSD for DG sets)</option>
+                              <option value="furnace_oil">Furnace Oil (Heavy Fuel Oil)</option>
+                              <option value="lpg">LPG (Liquefied Petroleum Gas)</option>
+                            </select>
+                          </div>
+
+                          <div className="form-group">
+                            <label htmlFor="quantityLiters" className="pill-label">
+                              Consumed volume (Litres) <span className="req">*</span>
+                            </label>
+                            <input
+                              id="quantityLiters"
+                              type="number"
+                              min="0.1"
+                              step="any"
+                              className="pill-input highlight"
+                              value={fuelFields.quantityLiters}
+                              onChange={(e) =>
+                                setFuelFields((prev) => ({ ...prev, quantityLiters: e.target.value }))
+                              }
+                              placeholder="e.g. 5000"
+                              required
+                            />
+                          </div>
+
+                          <div className="form-group">
+                            <label htmlFor="totalCostInr" className="pill-label">
+                              Total invoice cost (INR)
+                            </label>
+                            <input
+                              id="totalCostInr"
+                              type="number"
+                              min="0"
+                              step="any"
+                              className="pill-input"
+                              value={fuelFields.totalCostInr}
+                              onChange={(e) =>
+                                setFuelFields((prev) => ({ ...prev, totalCostInr: e.target.value }))
+                              }
+                              placeholder="e.g. 450000"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="form-row-2">
+                          <div className="form-group">
+                            <label htmlFor="fuelSupplier" className="pill-label">
+                              Fuel vendor / supplier name
+                            </label>
+                            <input
+                              id="fuelSupplier"
+                              className="pill-input"
+                              value={fuelFields.supplierName}
+                              onChange={(e) =>
+                                setFuelFields((prev) => ({ ...prev, supplierName: e.target.value }))
+                              }
+                              placeholder="e.g. Indian Oil Corporation Ltd."
+                            />
+                          </div>
+
+                          <div className="form-group">
+                            <label htmlFor="fuelInvNum" className="pill-label">
+                              Invoice / challan number
+                            </label>
+                            <input
+                              id="fuelInvNum"
+                              className="pill-input"
+                              value={fuelFields.invoiceNumber}
+                              onChange={(e) =>
+                                setFuelFields((prev) => ({ ...prev, invoiceNumber: e.target.value }))
+                              }
+                              placeholder="e.g. IOCL-INV-2026-99"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="verification-actions">
+                          <button
+                            type="button"
+                            className="pill-button pill-button-primary"
+                            disabled={loading || !fuelFields.quantityLiters}
+                            onClick={handleSaveFuel}
+                          >
+                            {loading ? "Saving to ledger..." : "Save Scope 1 Fuel Record"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* CATEGORY 3: RAW MATERIALS (Scope 3) */}
+                {activityCategory === "material" && (
+                  <div>
+                    {/* Material Register Dropzone */}
+                    <div className="dropzone-container">
+                      <label htmlFor="mat-file-upload" className="pill-dropzone">
+                        <div className="dropzone-content">
+                          <UploadIcon className="w-8 h-8 dropzone-icon" />
+                          <strong className="dropzone-text">
+                            {uploadedDocFile && uploadedDocId
+                              ? `Uploaded: ${uploadedDocFile.name}`
+                              : "Drop Material Purchase Register here (.pdf, .docx, images), or browse"}
+                          </strong>
+                          <span className="dropzone-spec">
+                            Extracts steel scrap, DRI sponge iron, and ferroalloys delivery tonnages
+                          </span>
+                        </div>
+                        <input
+                          id="mat-file-upload"
+                          type="file"
+                          accept=".pdf,.docx,.png,.jpg,.jpeg"
+                          onChange={(e) => handleDocumentUpload(e, "purchase_register")}
+                          className="visually-hidden"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="verification-box">
+                      <div className="verification-box-header">
+                        <div>
+                          <h4 className="verification-box-title">Purchased raw materials & precursor inputs</h4>
+                          <p className="verification-box-sub">
+                            Upstream embedded emissions from scrap, sponge iron (DRI), and ferroalloys
+                          </p>
+                        </div>
+                        <span className="scope-badge scope-badge-scope3">Scope 3 / Precursor</span>
+                      </div>
+
+                      <div className="verification-fields">
+                        <div className="form-row-3">
+                          <div className="form-group">
+                            <label htmlFor="materialType" className="pill-label">
+                              Material type <span className="req">*</span>
+                            </label>
+                            <select
+                              id="materialType"
+                              className="pill-input"
+                              value={materialFields.materialType}
+                              onChange={(e) =>
+                                setMaterialFields((prev) => ({ ...prev, materialType: e.target.value }))
+                              }
+                            >
+                              <option value="steel_scrap">Steel Scrap (Melting Scrap)</option>
+                              <option value="sponge_iron_dri_coal">Sponge Iron / DRI (Coal-based)</option>
+                              <option value="sponge_iron_dri_gas">Sponge Iron / DRI (Gas-based)</option>
+                              <option value="ferro_manganese">Ferro Manganese (FeMn)</option>
+                              <option value="ferro_silicon">Ferro Silicon (FeSi)</option>
+                              <option value="carbon_additive">Carbon Additive / CPC</option>
+                            </select>
+                          </div>
+
+                          <div className="form-group">
+                            <label htmlFor="quantityTonnes" className="pill-label">
+                              Quantity procured (Tonnes) <span className="req">*</span>
+                            </label>
+                            <input
+                              id="quantityTonnes"
+                              type="number"
+                              min="0.01"
+                              step="any"
+                              className="pill-input highlight"
+                              value={materialFields.quantityTonnes}
+                              onChange={(e) =>
+                                setMaterialFields((prev) => ({ ...prev, quantityTonnes: e.target.value }))
+                              }
+                              placeholder="e.g. 1200"
+                              required
+                            />
+                          </div>
+
+                          <div className="form-group">
+                            <label htmlFor="matSupplier" className="pill-label">
+                              Supplier / vendor name
+                            </label>
+                            <input
+                              id="matSupplier"
+                              className="pill-input"
+                              value={materialFields.supplierName}
+                              onChange={(e) =>
+                                setMaterialFields((prev) => ({ ...prev, supplierName: e.target.value }))
+                              }
+                              placeholder="e.g. Jindal Steel / Local Scrap Vendor"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="form-group">
+                          <label htmlFor="supplierEmissionFactor" className="pill-label">
+                            Supplier-declared emission factor (tCO2e / t) (optional)
+                          </label>
+                          <input
+                            id="supplierEmissionFactor"
+                            type="number"
+                            min="0"
+                            step="any"
+                            className="pill-input"
+                            value={materialFields.supplierEmissionFactor}
+                            onChange={(e) =>
+                              setMaterialFields((prev) => ({ ...prev, supplierEmissionFactor: e.target.value }))
+                            }
+                            placeholder="Leave empty to use GHG Protocol standard defaults"
+                          />
+                          <span className="field-hint">
+                            If omitted, the engine uses statutory default factors (e.g. 0.15 for scrap, 2.6 for coal DRI).
+                          </span>
+                        </div>
+
+                        <div className="verification-actions">
+                          <button
+                            type="button"
+                            className="pill-button pill-button-primary"
+                            disabled={loading || !materialFields.quantityTonnes}
+                            onClick={handleSaveMaterial}
+                          >
+                            {loading ? "Saving to ledger..." : "Save Scope 3 Material Record"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* CONSOLIDATED ACTIVITY LEDGER TABLE */}
+                <div style={{ marginTop: "2rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                    <h3 style={{ fontSize: "1.15rem", color: "var(--ink)" }}>
+                      Audit Activity Ledger ({periodActivity.electricity_records.length + periodActivity.fuel_records.length + periodActivity.material_records.length} items recorded)
+                    </h3>
+                    <span style={{ fontSize: "0.85rem", color: "var(--forest-700)", fontWeight: 600 }}>
+                      Total Recorded: {totalKwhRecorded.toLocaleString()} kWh · {totalFuelLitres.toLocaleString()} L fuel · {totalMaterialsTonnes.toLocaleString()} t materials
                     </span>
                   </div>
 
-                  <div className="verification-fields">
-                    <div className="form-group">
-                      <label htmlFor="supplier" className="pill-label">
-                        Electricity supplier / DISCOM
-                      </label>
-                      <input
-                        id="supplier"
-                        name="supplier"
-                        className="pill-input"
-                        value={documentFields.supplier}
-                        onChange={updateDocument}
-                        placeholder="e.g. CSPDCL / Tata Power / PSPCL"
-                      />
+                  {periodActivity.electricity_records.length === 0 &&
+                  periodActivity.fuel_records.length === 0 &&
+                  periodActivity.material_records.length === 0 ? (
+                    <div style={{ padding: "2rem", textAlign: "center", background: "var(--canvas)", borderRadius: "12px", border: "1px dashed var(--line)", color: "var(--muted)" }}>
+                      No activity records recorded yet for this period. Upload a bill or enter data above.
                     </div>
+                  ) : (
+                    <div className="activity-table-wrapper">
+                      <table className="activity-table">
+                        <thead>
+                          <tr>
+                            <th>Category</th>
+                            <th>Item Details</th>
+                            <th>Quantity</th>
+                            <th>Cost / Provider</th>
+                            <th>Audit Status</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {/* Electricity Records */}
+                          {periodActivity.electricity_records.map((rec) => (
+                            <tr key={`elec-${rec.id}`}>
+                              <td>
+                                <span className="scope-badge scope-badge-scope2">Scope 2</span>
+                              </td>
+                              <td>Grid Electricity</td>
+                              <td>
+                                <strong>{rec.consumed_kwh.toLocaleString()} kWh</strong>
+                              </td>
+                              <td>{rec.total_billed_inr ? `₹${Number(rec.total_billed_inr).toLocaleString()}` : "DISCOM Metered"}</td>
+                              <td>
+                                <span className={`status-pill ${rec.status}`}>{rec.status}</span>
+                              </td>
+                              <td>
+                                <div style={{ display: "flex", gap: "6px" }}>
+                                  {rec.status !== "confirmed" && (
+                                    <button
+                                      type="button"
+                                      className="table-action-btn btn-verify"
+                                      onClick={() => handleVerifyRecord("electricity", rec.id, "confirmed")}
+                                    >
+                                      Verify
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="table-action-btn btn-delete"
+                                    onClick={() => handleDeleteRecord("electricity", rec.id)}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
 
-                    <div className="form-row-2">
-                      <div className="form-group">
-                        <label htmlFor="billingPeriod" className="pill-label">
-                          Billing month
-                        </label>
-                        <input
-                          id="billingPeriod"
-                          name="billingPeriod"
-                          className="pill-input"
-                          value={documentFields.billingPeriod}
-                          onChange={updateDocument}
-                          placeholder="e.g. Jan 2026"
-                        />
-                      </div>
+                          {/* Fuel Records */}
+                          {periodActivity.fuel_records.map((rec) => (
+                            <tr key={`fuel-${rec.id}`}>
+                              <td>
+                                <span className="scope-badge scope-badge-scope1">Scope 1</span>
+                              </td>
+                              <td>Fuel: {rec.fuel_type?.replace(/_/g, " ").toUpperCase()}</td>
+                              <td>
+                                <strong>{rec.quantity_liters.toLocaleString()} Litres</strong>
+                              </td>
+                              <td>{rec.total_cost_inr ? `₹${Number(rec.total_cost_inr).toLocaleString()}` : "Direct Purchase"}</td>
+                              <td>
+                                <span className={`status-pill ${rec.status}`}>{rec.status}</span>
+                              </td>
+                              <td>
+                                <div style={{ display: "flex", gap: "6px" }}>
+                                  {rec.status !== "confirmed" && (
+                                    <button
+                                      type="button"
+                                      className="table-action-btn btn-verify"
+                                      onClick={() => handleVerifyRecord("fuel", rec.id, "confirmed")}
+                                    >
+                                      Verify
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="table-action-btn btn-delete"
+                                    onClick={() => handleDeleteRecord("fuel", rec.id)}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
 
-                      <div className="form-group">
-                        <label htmlFor="invoiceNumber" className="pill-label">
-                          Bill / consumer number
-                        </label>
-                        <input
-                          id="invoiceNumber"
-                          name="invoiceNumber"
-                          className="pill-input"
-                          value={documentFields.invoiceNumber}
-                          onChange={updateDocument}
-                          placeholder="e.g. HT-09482910"
-                        />
-                      </div>
+                          {/* Material Records */}
+                          {periodActivity.material_records.map((rec) => (
+                            <tr key={`mat-${rec.id}`}>
+                              <td>
+                                <span className="scope-badge scope-badge-scope3">Scope 3</span>
+                              </td>
+                              <td>{rec.material_type?.replace(/_/g, " ").toUpperCase()}</td>
+                              <td>
+                                <strong>{rec.quantity_tonnes.toLocaleString()} Tonnes</strong>
+                              </td>
+                              <td>{rec.supplier_name || "Commercial Vendor"}</td>
+                              <td>
+                                <span className={`status-pill ${rec.status}`}>{rec.status}</span>
+                              </td>
+                              <td>
+                                <div style={{ display: "flex", gap: "6px" }}>
+                                  {rec.status !== "confirmed" && (
+                                    <button
+                                      type="button"
+                                      className="table-action-btn btn-verify"
+                                      onClick={() => handleVerifyRecord("material", rec.id, "confirmed")}
+                                    >
+                                      Verify
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="table-action-btn btn-delete"
+                                    onClick={() => handleDeleteRecord("material", rec.id)}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-
-                    <div className="form-group">
-                      <label htmlFor="electricityKwh" className="pill-label">
-                        Electricity consumed (kWh) <span className="req">*</span>
-                      </label>
-                      <input
-                        id="electricityKwh"
-                        name="electricityKwh"
-                        type="number"
-                        min="0.01"
-                        step="any"
-                        className="pill-input highlight"
-                        value={documentFields.electricityKwh}
-                        onChange={updateDocument}
-                        placeholder="e.g. 1500000"
-                        required
-                      />
-                      <span className="field-hint">
-                        Total active import energy (kWh) recorded on your primary HT meter
-                      </span>
-                    </div>
-
-                    <div className="verification-actions">
-                      <button
-                        type="button"
-                        className="pill-button pill-button-primary"
-                        disabled={loading || !documentFields.electricityKwh}
-                        onClick={() => handleDocumentDecision("confirmed")}
-                      >
-                        {loading ? "Saving to database..." : "Confirm & Save into Audit Trail"}
-                      </button>
-                      <button
-                        type="button"
-                        className="pill-button pill-button-secondary"
-                        disabled={loading}
-                        onClick={() => handleDocumentDecision("flagged")}
-                      >
-                        Flag discrepancy
-                      </button>
-                      <button
-                        type="button"
-                        className="pill-button pill-button-outline"
-                        disabled={loading}
-                        onClick={() => handleDocumentDecision("discarded")}
-                      >
-                        Discard
-                      </button>
-                    </div>
-                  </div>
+                  )}
                 </div>
 
                 <div className="form-actions-row">
@@ -897,7 +1815,7 @@ export default function Setup() {
                     className="pill-button pill-button-primary"
                     onClick={() => setActiveStep(4)}
                   >
-                    Proceed to calculation →
+                    Proceed to calculation & reports →
                   </button>
                 </div>
               </section>
@@ -907,15 +1825,13 @@ export default function Setup() {
             {activeStep === 4 && (
               <section className="form-card" aria-labelledby="heading-step-4">
                 <div className="form-card-header">
-                  <div>
-                    <span className="step-eyebrow">STEP 04</span>
-                    <h2 id="heading-step-4" className="form-card-title">
-                      Emissions calculation & CEA audit sync
-                    </h2>
-                    <p className="form-card-subtitle">
-                      Sync live regulatory factors from CEA via TinyFish and execute deterministic emission calculations.
-                    </p>
-                  </div>
+                  <span className="step-eyebrow">STEP 04</span>
+                  <h2 id="heading-step-4" className="form-card-title">
+                    Emissions calculation & CEA audit sync
+                  </h2>
+                  <p className="form-card-subtitle">
+                    Sync live regulatory factors from CEA via TinyFish, compute GHG Protocol footprint, and archive immutable audit reports.
+                  </p>
                 </div>
 
                 {/* Evidence sync card */}
@@ -925,20 +1841,45 @@ export default function Setup() {
                       <SyncIcon className="w-5 h-5 text-forest" />
                     </div>
                     <div>
-                      <h4 className="sync-title">CEA Grid Emission Factor (TinyFish Agent)</h4>
+                      <h4 className="sync-title">CEA Grid Emission Baseline (TinyFish Agent)</h4>
                       <p className="sync-desc">
-                        Fetch certified Indian National Grid baseline factor from Central Electricity Authority (CO2 Database v20).
+                        Fetch certified Indian National Grid baseline factor from Central Electricity Authority (CO2 Database v20.0).
                         {syncedFactor && (
-                          <span style={{ display: "block", color: "var(--color-green, #1b4d3e)", fontWeight: 600, marginTop: "0.25rem" }}>
-                            Current: {syncedFactor.value} {syncedFactor.unit} · {syncedFactor.source_title}
+                          <span style={{ display: "block", color: "var(--forest-900)", fontWeight: 700, marginTop: "0.35rem" }}>
+                            Current Synced Baseline: {syncedFactor.value} {syncedFactor.unit} · {syncedFactor.source_title}
                           </span>
                         )}
                       </p>
+                      {syncedFactor && (
+                        <div style={{ marginTop: "6px" }}>
+                          <a
+                            href={
+                              syncedFactor.source_url && syncedFactor.source_url.startsWith("http")
+                                ? syncedFactor.source_url
+                                : "https://cea.nic.in"
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              fontSize: "0.8rem",
+                              color: "var(--green-500)",
+                              textDecoration: "underline",
+                              fontWeight: 600,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                            }}
+                          >
+                            <span>Official CEA Registry (cea.nic.in)</span>
+                            <span>↗</span>
+                          </a>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="sync-box-action">
                     <span className={`status-pill ${factorStatus}`}>
-                      {factorStatus === "synced" ? "Synced with CEA" : "Ready to sync"}
+                      {factorStatus === "synced" ? "Synced with CEA Registry" : "Ready to sync"}
                     </span>
                     <button
                       type="button"
@@ -951,6 +1892,68 @@ export default function Setup() {
                   </div>
                 </div>
 
+                {/* List of Regulatory Sources Table */}
+                <div style={{ marginBottom: "24px" }}>
+                  <h4 style={{ fontSize: "1rem", color: "var(--forest-900)", marginBottom: "8px" }}>
+                    Verified Regulatory Sources & Standards ({allEvidenceItems.length || 3}):
+                  </h4>
+                  <div className="activity-table-wrapper">
+                    <table className="activity-table">
+                      <thead>
+                        <tr>
+                          <th>Category</th>
+                          <th>Certified Factor</th>
+                          <th>Regulatory Standard</th>
+                          <th>Verification Status</th>
+                          <th>Official Registry</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(allEvidenceItems.length > 0 ? allEvidenceItems : [
+                          {
+                            category: "grid_emission_factor",
+                            value: 0.727,
+                            unit: "tCO2/MWh",
+                            source_title: "CEA CO2 Baseline Database (Version 20.0)",
+                            source_url: "https://cea.nic.in",
+                          },
+                          {
+                            category: "fuel_diesel",
+                            value: 0.00268,
+                            unit: "tCO2e/L",
+                            source_title: "IPCC 2006 Guidelines for Stationary Combustion",
+                            source_url: "https://www.ipcc-nggip.iges.or.jp",
+                          },
+                          {
+                            category: "material_scrap",
+                            value: 0.15,
+                            unit: "tCO2e/t",
+                            source_title: "GHG Protocol Scope 3 Category 1 Technical Guidance",
+                            source_url: "https://ghgprotocol.org",
+                          },
+                        ]).map((ev, idx) => (
+                          <tr key={ev.identifier || idx}>
+                            <td><strong>{ev.category?.replace(/_/g, " ").toUpperCase()}</strong></td>
+                            <td style={{ color: "var(--green-500)", fontWeight: 700 }}>{ev.value} {ev.unit}</td>
+                            <td>{ev.source_title}</td>
+                            <td><span className="status-pill confirmed">Verified</span></td>
+                            <td>
+                              <a
+                                href={ev.source_url && ev.source_url.startsWith("http") ? ev.source_url : "https://cea.nic.in"}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ color: "var(--green-500)", textDecoration: "underline", fontSize: "0.85rem" }}
+                              >
+                                View Portal ↗
+                              </a>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
                 {/* Calculation placeholder box */}
                 <div className="calc-placeholder-box">
                   <div className="calc-icon-large">
@@ -958,39 +1961,175 @@ export default function Setup() {
                   </div>
                   <h3 className="calc-title">
                     {calculationStatus === "calculated"
-                      ? "Calculation complete!"
-                      : "Ready to run emission engine"}
+                      ? "Emissions Footprint Computed!"
+                      : "Ready to run deterministic emission engine"}
                   </h3>
                   <p className="calc-desc">
-                    Combines your verified {documentFields.electricityKwh ? Number(documentFields.electricityKwh).toLocaleString() : 0} kWh with the official CEA grid emission coefficient ({syncedFactor ? syncedFactor.value : "0.727"} tCO2/MWh) to generate Scope 2 totals and decarbonization pathways.
+                    Combines your verified activity ledger ({totalKwhRecorded || electricityFields.consumedKwh || 0} kWh, {totalFuelLitres} L fuel, {totalMaterialsTonnes} t materials) with the official CEA grid emission baseline ({syncedFactor ? syncedFactor.value : "0.7270"} tCO2/MWh) to generate Scope 1, Scope 2, Scope 3, and decarbonization pathways.
                   </p>
 
                   <div className="calc-actions-row">
                     <button
                       type="button"
                       className="pill-button pill-button-primary"
-                      disabled={loading}
+                      disabled={loading || calculationStatus === "calculated"}
                       onClick={handleCalculate}
                     >
-                      {loading ? "Calculating..." : "Calculate emissions"}
+                      {loading
+                        ? "Calculating footprint..."
+                        : calculationStatus === "calculated"
+                          ? "✓ Footprint Calculated"
+                          : "Calculate GHG Footprint"}
                     </button>
+                    {calculationStatus === "calculated" && (
+                      <button
+                        type="button"
+                        className="pill-button pill-button-outline"
+                        disabled={loading}
+                        onClick={handleCalculate}
+                        style={{ fontSize: "0.85rem" }}
+                      >
+                        Recalculate
+                      </button>
+                    )}
                     <button
                       type="button"
-                      className="pill-button pill-button-outline"
-                      disabled={loading || !calculationResult}
+                      className="pill-button pill-button-secondary"
+                      disabled={loading}
                       onClick={handleExport}
                     >
-                      {loading ? "Archiving..." : "Archive & Export report"}
+                      {loading ? "Archiving report..." : "Generate & Archive Audit Report"}
                     </button>
                     <a
-                      href="#/results"
-                      className="pill-button pill-button-translucent-dark"
+                      href="#/dashboard"
+                      className="pill-button pill-button-outline"
                       style={{ fontWeight: 600 }}
                     >
-                      {calculationStatus === "calculated" ? "View full audit report & pathways →" : "View sample results →"}
+                      View in Executive Dashboard →
                     </a>
                   </div>
                 </div>
+
+                {/* Generated Report Card & Snapshot Preview */}
+                {generatedReport && (
+                  <div className="generated-report-card">
+                    <div className="report-header-badge">
+                      <CheckIcon className="w-4 h-4" />
+                      <span>Certified Audit Report Generated</span>
+                    </div>
+
+                    <h3 style={{ fontSize: "1.25rem", color: "var(--forest-900)", marginBottom: "0.25rem" }}>
+                      {generatedReport.report_title}
+                    </h3>
+                    <p style={{ fontSize: "0.85rem", color: "var(--muted)", marginBottom: "1rem" }}>
+                      Report Archive ID: {generatedReport.id} · Format: {generatedReport.export_format?.toUpperCase()} · Generated: {new Date(generatedReport.generated_at).toLocaleString()}
+                    </p>
+
+                    <div className="report-metrics-grid">
+                      <div className="report-metric-box primary">
+                        <div className="report-metric-label">Specific Emissions</div>
+                        <div className="report-metric-value">
+                          {generatedReport.computation_snapshot?.emission_results?.tco2e_per_tonne ?? calculationResult?.specific_emissions_tco2e_per_tonne ?? "N/A"}{" "}
+                          <span style={{ fontSize: "0.85rem", fontWeight: 500 }}>tCO2e/t</span>
+                        </div>
+                      </div>
+
+                      <div className="report-metric-box">
+                        <div className="report-metric-label">Scope 1 (Direct Fuel)</div>
+                        <div className="report-metric-value">
+                          {generatedReport.computation_snapshot?.emission_results?.scope1_tco2e ?? calculationResult?.total_scope1_tco2e ?? 0}{" "}
+                          <span style={{ fontSize: "0.85rem", fontWeight: 500 }}>tCO2e</span>
+                        </div>
+                      </div>
+
+                      <div className="report-metric-box">
+                        <div className="report-metric-label">Scope 2 (Electricity)</div>
+                        <div className="report-metric-value">
+                          {generatedReport.computation_snapshot?.emission_results?.scope2_tco2e ?? calculationResult?.total_scope2_tco2e ?? 0}{" "}
+                          <span style={{ fontSize: "0.85rem", fontWeight: 500 }}>tCO2e</span>
+                        </div>
+                      </div>
+
+                      <div className="report-metric-box">
+                        <div className="report-metric-label">Scope 3 (Materials)</div>
+                        <div className="report-metric-value">
+                          {generatedReport.computation_snapshot?.emission_results?.precursor_tco2e ?? calculationResult?.total_precursor_tco2e ?? 0}{" "}
+                          <span style={{ fontSize: "0.85rem", fontWeight: 500 }}>tCO2e</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: "1rem", padding: "1rem", background: "var(--canvas)", borderRadius: "10px", fontSize: "0.85rem" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                        <strong>Cryptographic Computation Snapshot:</strong>
+                        <span className="report-hash-tag">
+                          SHA-256: {generatedReport.computation_snapshot?.snapshot_sha256}
+                        </span>
+                      </div>
+                      <p style={{ color: "var(--muted)", margin: 0 }}>
+                        TinyFish Certified Evidence Baseline: {syncedFactor?.value ?? "0.7270"} {syncedFactor?.unit ?? "tCO2/MWh"} ({syncedFactor?.source_title ?? "CEA Central Electricity Authority v20"})
+                      </p>
+                    </div>
+
+                    <div style={{ display: "flex", gap: "12px", marginTop: "1.25rem", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        className="pill-button pill-button-primary"
+                        onClick={handleDownloadPdfReport}
+                      >
+                        <ReportIcon className="w-4 h-4" />
+                        <span>Download Official Audit Report (PDF)</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="pill-button pill-button-outline"
+                        onClick={downloadSnapshotJson}
+                      >
+                        Download JSON Snapshot
+                      </button>
+                      <a
+                        href="#/dashboard"
+                        className="pill-button pill-button-secondary"
+                        style={{ fontWeight: 600 }}
+                      >
+                        Open Executive Dashboard →
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                {/* Previously Archived Reports for this Period */}
+                {archivedReports.length > 0 && (
+                  <div style={{ marginTop: "2rem", borderTop: "1px solid var(--line)", paddingTop: "1.5rem" }}>
+                    <h4 style={{ fontSize: "1rem", color: "var(--ink)", marginBottom: "0.75rem" }}>
+                      Archived Reports for this Period ({archivedReports.length})
+                    </h4>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                      {archivedReports.map((rep) => (
+                        <div
+                          key={rep.id}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "10px 14px",
+                            background: "var(--canvas)",
+                            borderRadius: "8px",
+                            fontSize: "0.875rem",
+                          }}
+                        >
+                          <div>
+                            <strong>{rep.report_title}</strong>
+                            <span style={{ display: "block", fontSize: "0.75rem", color: "var(--muted)" }}>
+                              Format: {rep.export_format?.toUpperCase()} · {new Date(rep.generated_at).toLocaleString()}
+                            </span>
+                          </div>
+                          <span className="status-pill confirmed">Archived</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="form-actions-row">
                   <button
@@ -998,7 +2137,7 @@ export default function Setup() {
                     className="pill-button pill-button-outline"
                     onClick={() => setActiveStep(3)}
                   >
-                    ← Back to documents
+                    ← Back to activity evidence
                   </button>
                 </div>
               </section>

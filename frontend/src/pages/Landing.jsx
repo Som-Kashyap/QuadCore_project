@@ -100,8 +100,8 @@ export default function Landing() {
               <a href="#/setup" className="pill-button pill-button-white">
                 Start your audit
               </a>
-              <a href="#/results" className="pill-button pill-button-translucent">
-                See a sample result
+              <a href="#/dashboard" className="pill-button pill-button-translucent">
+                Explore Plant Dashboard
               </a>
             </div>
           </div>
@@ -394,8 +394,8 @@ export default function Landing() {
                   <a href="#/setup" className="pill-button pill-button-white">
                     Start plant onboarding
                   </a>
-                  <a href="#/results" className="pill-button pill-button-translucent">
-                    Explore sample calculation
+                  <a href="#/dashboard" className="pill-button pill-button-translucent">
+                    Explore Plant Dashboard
                   </a>
                 </div>
               </div>

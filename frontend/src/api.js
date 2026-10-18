@@ -205,6 +205,19 @@ export function getFactoryById(firmId) {
   return apiRequest(`/api/firms/${firmId}`);
 }
 
+export function updateFactory(firmId, data) {
+  return apiRequest(`/api/firms/${firmId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteFactory(firmId) {
+  return apiRequest(`/api/firms/${firmId}`, {
+    method: "DELETE",
+  });
+}
+
 // -----------------------------------------------------------------------------
 // Reporting Period Endpoints (/api/reporting-periods)
 // -----------------------------------------------------------------------------
@@ -233,6 +246,23 @@ export function getReportingPeriodById(periodId) {
   return apiRequest(`/api/reporting-periods/${periodId}`);
 }
 
+export function updateReportingPeriod(periodId, data) {
+  return apiRequest(`/api/reporting-periods/${periodId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteReportingPeriod(periodId) {
+  return apiRequest(`/api/reporting-periods/${periodId}`, {
+    method: "DELETE",
+  });
+}
+
+export function getPeriodReports(periodId) {
+  return apiRequest(`/api/reporting-periods/${periodId}/reports`);
+}
+
 // -----------------------------------------------------------------------------
 // Document Evidence Endpoints (/api/documents)
 // -----------------------------------------------------------------------------
@@ -250,6 +280,20 @@ export function uploadDocument(file, reportingPeriodId, category = "electricity_
 
 export function listDocumentsForPeriod(periodId) {
   return apiRequest(`/api/documents/period/${periodId}`);
+}
+
+export function getDocumentById(documentId) {
+  return apiRequest(`/api/documents/${documentId}`);
+}
+
+export function deleteDocument(documentId) {
+  return apiRequest(`/api/documents/${documentId}`, {
+    method: "DELETE",
+  });
+}
+
+export function getDocumentDownloadUrl(documentId) {
+  return `${API_BASE}/api/documents/${documentId}/download`;
 }
 
 // -----------------------------------------------------------------------------
@@ -282,14 +326,33 @@ export function createElectricityRecord(data) {
 export function createFuelRecord(data) {
   return apiRequest("/api/activity/fuel/", {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      reporting_period_id: Number(data.reporting_period_id),
+      fuel_type: data.fuel_type || "diesel",
+      quantity_liters: Number(data.quantity_liters),
+      total_cost_inr:
+        data.total_cost_inr !== undefined && data.total_cost_inr !== null
+          ? Number(data.total_cost_inr)
+          : null,
+      source_document_id: data.source_document_id || null,
+    }),
   });
 }
 
 export function createMaterialRecord(data) {
   return apiRequest("/api/activity/material/", {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      reporting_period_id: Number(data.reporting_period_id),
+      material_type: data.material_type || "steel_scrap",
+      quantity_tonnes: Number(data.quantity_tonnes),
+      supplier_name: data.supplier_name?.trim() || null,
+      supplier_stated_emission_factor:
+        data.supplier_stated_emission_factor && Number(data.supplier_stated_emission_factor) >= 0
+          ? Number(data.supplier_stated_emission_factor)
+          : null,
+      source_document_id: data.source_document_id || null,
+    }),
   });
 }
 
@@ -301,6 +364,12 @@ export function verifyActivity(type, recordId, status = "confirmed") {
   return apiRequest(`/api/activity/${type}/${recordId}/verify`, {
     method: "PUT",
     body: JSON.stringify({ status }),
+  });
+}
+
+export function deleteActivityRecord(type, recordId) {
+  return apiRequest(`/api/activity/${type}/${recordId}`, {
+    method: "DELETE",
   });
 }
 
@@ -338,4 +407,8 @@ export function syncEvidence(category = "grid_emission_factor") {
 
 export function getEvidenceItems() {
   return apiRequest("/api/evidence/");
+}
+
+export function getEvidenceByCategory(category = "grid_emission_factor") {
+  return apiRequest(`/api/evidence/${category}`);
 }

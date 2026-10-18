@@ -31,6 +31,8 @@ export default function Navbar({ currentRoute }) {
     window.location.reload();
   }
 
+  const isWorkspace = currentRoute === "#/dashboard" || currentRoute === "#/setup";
+
   return (
     <header className="site-header">
       <div className="site-header-inner">
@@ -40,53 +42,100 @@ export default function Navbar({ currentRoute }) {
           </span>
           <span className="brand-text-group">
             <span className="brand-title">CarbonLedger</span>
-            <span className="brand-badge">India Steel</span>
+            <span className="brand-badge">{isWorkspace ? "Workspace" : "India Steel"}</span>
           </span>
         </a>
 
         {/* Desktop Nav */}
         <nav className="nav-desktop" aria-label="Main navigation">
-          <a
-            href="#features"
-            className="nav-link"
-            onClick={() => {
-              if (window.location.hash !== "#/" && window.location.hash !== "") {
-                window.location.hash = "#features";
-              }
-            }}
-          >
-            Features
-          </a>
-          <a
-            href="#how-it-works"
-            className="nav-link"
-            onClick={() => {
-              if (window.location.hash !== "#/" && window.location.hash !== "") {
-                window.location.hash = "#how-it-works";
-              }
-            }}
-          >
-            How it works
-          </a>
-          <a
-            href="#/results"
-            className={`nav-link ${currentRoute === "#/results" ? "active" : ""}`}
-          >
-            Audit results
-          </a>
+          {isWorkspace ? (
+            <>
+              <a
+                href="#/dashboard"
+                className={`nav-link ${currentRoute === "#/dashboard" ? "active" : ""}`}
+              >
+                📊 Plant Dashboard
+              </a>
+              <a
+                href="#/setup"
+                className={`nav-link ${currentRoute === "#/setup" ? "active" : ""}`}
+              >
+                📝 Audit Setup & Ledger
+              </a>
+              <a href="#/" className="nav-link" style={{ opacity: 0.7 }}>
+                ← Overview Page
+              </a>
+            </>
+          ) : (
+            <>
+              <a
+                href="#features"
+                className="nav-link"
+                onClick={() => {
+                  if (window.location.hash !== "#/" && window.location.hash !== "") {
+                    window.location.hash = "#features";
+                  }
+                }}
+              >
+                Features
+              </a>
+              <a
+                href="#how-it-works"
+                className="nav-link"
+                onClick={() => {
+                  if (window.location.hash !== "#/" && window.location.hash !== "") {
+                    window.location.hash = "#how-it-works";
+                  }
+                }}
+              >
+                How it works
+              </a>
+              <a
+                href="#/dashboard"
+                className={`nav-link ${currentRoute === "#/dashboard" ? "active" : ""}`}
+              >
+                Plant Dashboard
+              </a>
+              <a
+                href="#/setup"
+                className={`nav-link ${currentRoute === "#/setup" ? "active" : ""}`}
+              >
+                Audit Setup
+              </a>
+            </>
+          )}
         </nav>
 
         <div className="header-actions">
           {authed ? (
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-              <span style={{ fontSize: "0.85rem", color: "var(--forest-900)", fontWeight: 600 }}>
+              {!isWorkspace && (
+                <a
+                  href="#/dashboard"
+                  className="pill-button pill-button-primary"
+                  style={{ padding: "0.45rem 1rem", fontSize: "0.85rem" }}
+                >
+                  Dashboard →
+                </a>
+              )}
+              <span
+                style={{
+                  fontSize: "0.85rem",
+                  color: "var(--forest-900)",
+                  fontWeight: 600,
+                  maxWidth: "140px",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
                 {displayUser?.full_name || displayUser?.email || "Authenticated"}
               </span>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="pill-button pill-button-secondary"
-                style={{ padding: "0.4rem 0.9rem", fontSize: "0.85rem" }}
+                className="pill-button pill-button-outline"
+                style={{ padding: "0.4rem 0.85rem", fontSize: "0.8rem" }}
               >
                 Sign out
               </button>
@@ -114,35 +163,63 @@ export default function Navbar({ currentRoute }) {
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
         <nav className="nav-mobile" aria-label="Mobile navigation">
-          <a
-            href="#features"
-            className="mobile-nav-link"
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            Features
-          </a>
-          <a
-            href="#how-it-works"
-            className="mobile-nav-link"
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            How it works
-          </a>
-          <a
-            href="#/results"
-            className={`mobile-nav-link ${currentRoute === "#/results" ? "active" : ""}`}
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            Audit results
-          </a>
+          {isWorkspace ? (
+            <>
+              <a
+                href="#/dashboard"
+                className="mobile-nav-link"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                📊 Plant Dashboard
+              </a>
+              <a
+                href="#/setup"
+                className="mobile-nav-link"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                📝 Audit Setup & Ledger
+              </a>
+              <a
+                href="#/"
+                className="mobile-nav-link"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                ← Overview Page
+              </a>
+            </>
+          ) : (
+            <>
+              <a
+                href="#features"
+                className="mobile-nav-link"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Features
+              </a>
+              <a
+                href="#how-it-works"
+                className="mobile-nav-link"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                How it works
+              </a>
+              <a
+                href="#/dashboard"
+                className="mobile-nav-link"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Dashboard
+              </a>
+            </>
+          )}
           {authed ? (
             <button
               type="button"
+              className="pill-button pill-button-secondary mobile-audit-btn"
               onClick={() => {
                 setMobileMenuOpen(false);
                 handleLogout();
               }}
-              className="pill-button pill-button-secondary mobile-audit-btn"
             >
               Sign out
             </button>
