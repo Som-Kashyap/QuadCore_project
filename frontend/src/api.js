@@ -1,13 +1,22 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://caucasian-bleak-recede.ngrok-free.dev";
+
+// -----------------------------------------------------------------------------
+// Session & Token Storage
+// -----------------------------------------------------------------------------
 
 export function saveTokens(data) {
-  sessionStorage.setItem("access_token", data.access_token);
-  sessionStorage.setItem("refresh_token", data.refresh_token);
+  if (data?.access_token) {
+    sessionStorage.setItem("access_token", data.access_token);
+  }
+  if (data?.refresh_token) {
+    sessionStorage.setItem("refresh_token", data.refresh_token);
+  }
 }
 
 export function clearSession() {
   sessionStorage.removeItem("access_token");
   sessionStorage.removeItem("refresh_token");
+  sessionStorage.removeItem("calculation_result");
 }
 
 function saveSession(data) {
@@ -32,27 +41,36 @@ export function isAuthenticated() {
   return Boolean(getAccessToken());
 }
 
+export function saveCalculationResult(result) {
+  sessionStorage.setItem("calculation_result", JSON.stringify(result));
+}
+
+export function getCalculationResult() {
+  const data = sessionStorage.getItem("calculation_result");
+  if (!data) return null;
+  try {
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Core Request Handler
 // -----------------------------------------------------------------------------
 
-/**
- * Make an HTTP request to the CarbonLedger backend API.
- * Handles ngrok browser-warning bypass, token injection, error parsing, and network failures.
- */
 export async function apiRequest(path, options = {}) {
-  const token = sessionStorage.getItem("access_token");
+  const token = getAccessToken();
   const headers = new Headers(options.headers || {});
-  const accessToken = getAccessToken();
 
-  const finalToken = accessToken || token;
+  // Bypass ngrok free tier browser warning interstitial
+  headers.set("ngrok-skip-browser-warning", "true");
 
-
-  if (finalToken) {
-    headers.set("Authorization", `Bearer ${finalToken}`);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
   }
 
-  // Let the browser set Content-Type automatically for FormData.
+  // Let browser set boundary automatically for FormData
   if (options.body && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
@@ -89,13 +107,9 @@ export function checkHealth() {
 }
 
 // -----------------------------------------------------------------------------
-// Authentication Endpoints (FastAPI /api/auth)
+// Authentication Endpoints (/api/auth)
 // -----------------------------------------------------------------------------
 
-/**
- * Register a new user account.
- * Expected schema: { email: string, password: string (min 8 chars), full_name: string }
- */
 export async function registerUser({ email, password, full_name }) {
   const data = await apiRequest("/api/auth/register", {
     method: "POST",
@@ -109,10 +123,6 @@ export async function registerUser({ email, password, full_name }) {
   return data;
 }
 
-/**
- * Log in an existing user.
- * Expected schema: { email: string, password: string }
- */
 export async function loginUser({ email, password }) {
   const data = await apiRequest("/api/auth/login", {
     method: "POST",
@@ -125,9 +135,6 @@ export async function loginUser({ email, password }) {
   return data;
 }
 
-/**
- * Refresh access token using the stored refresh token.
- */
 export async function refreshUserTokens() {
   const token = getRefreshToken();
   if (!token) {
@@ -141,9 +148,6 @@ export async function refreshUserTokens() {
   return data;
 }
 
-/**
- * Fetch current authenticated user profile.
- */
 export function getCurrentUser() {
   return apiRequest("/api/auth/me");
 }
@@ -153,32 +157,151 @@ export function logoutUser() {
 }
 
 // -----------------------------------------------------------------------------
-// Firm / Factory Endpoints (FastAPI /api/firms)
+// Factory / Firm Endpoints (/api/firms)
 // -----------------------------------------------------------------------------
 
-/**
- * Create a new factory firm entity.
- * Required fields: name, state
- * Optional: roof_area_sqm (gt 0), contracted_demand_mva (gt 0), tariff_category, registration_identifier
- */
 export function createFactory(factory) {
   return apiRequest("/api/firms/", {
     method: "POST",
     body: JSON.stringify({
-      name: factory.name.trim(),
-      state: factory.state.trim(),
-      segment: "induction_furnace",
+      name: factory.name?.trim(),
+      state: factory.state?.trim(),
+      segment: factory.segment || "induction_furnace",
       roof_area_sqm: factory.roof_area_sqm
         ? Number(factory.roof_area_sqm)
         : null,
       contracted_demand_mva: factory.contracted_demand_mva
         ? Number(factory.contracted_demand_mva)
         : null,
-      tariff_category: factory.tariff_category.trim() || null,
+      tariff_category: factory.tariff_category?.trim() || null,
+      registration_identifier: factory.registration_identifier?.trim() || null,
     }),
   });
 }
 
 export function getFactories() {
   return apiRequest("/api/firms/");
+}
+
+export function getFactoryById(firmId) {
+  return apiRequest(`/api/firms/${firmId}`);
+}
+
+// -----------------------------------------------------------------------------
+// Reporting Period Endpoints (/api/reporting-periods)
+// -----------------------------------------------------------------------------
+
+export function createReportingPeriod(periodData) {
+  return apiRequest("/api/reporting-periods/", {
+    method: "POST",
+    body: JSON.stringify({
+      firm_id: periodData.firm_id,
+      start_date: periodData.start_date,
+      end_date: periodData.end_date,
+      production_tonnes: periodData.production_tonnes
+        ? Number(periodData.production_tonnes)
+        : null,
+    }),
+  });
+}
+
+export function getReportingPeriods(firmId = null) {
+  const query = firmId ? `?firm_id=${firmId}` : "";
+  return apiRequest(`/api/reporting-periods/${query}`);
+}
+
+export function getReportingPeriodById(periodId) {
+  return apiRequest(`/api/reporting-periods/${periodId}`);
+}
+
+// -----------------------------------------------------------------------------
+// Document Evidence Endpoints (/api/documents)
+// -----------------------------------------------------------------------------
+
+export function uploadDocument(file, reportingPeriodId, category = "electricity_bill") {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiRequest(
+    `/api/documents/upload?reporting_period_id=${reportingPeriodId}&category=${category}`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+}
+
+export function listDocumentsForPeriod(periodId) {
+  return apiRequest(`/api/documents/period/${periodId}`);
+}
+
+// -----------------------------------------------------------------------------
+// Activity Records Endpoints (/api/activity)
+// -----------------------------------------------------------------------------
+
+export function createElectricityRecord(data) {
+  return apiRequest("/api/activity/electricity/", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function createFuelRecord(data) {
+  return apiRequest("/api/activity/fuel/", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function createMaterialRecord(data) {
+  return apiRequest("/api/activity/material/", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function getPeriodActivity(periodId) {
+  return apiRequest(`/api/activity/period/${periodId}`);
+}
+
+export function verifyActivity(type, recordId, status = "confirmed") {
+  return apiRequest(`/api/activity/${type}/${recordId}/verify`, {
+    method: "PUT",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function ingestDocumentToActivity(documentId) {
+  return apiRequest(`/api/activity/ingest/${documentId}`, {
+    method: "POST",
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Calculation Engine & Reports (/api/reports)
+// -----------------------------------------------------------------------------
+
+export function calculateFootprint(periodId) {
+  return apiRequest(`/api/reports/calculate/${periodId}`, {
+    method: "POST",
+  });
+}
+
+export function exportReport(periodId, format = "pdf") {
+  return apiRequest(`/api/reports/export/${periodId}?format=${format}`, {
+    method: "POST",
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Evidence & TinyFish Sync Endpoints (/api/evidence)
+// -----------------------------------------------------------------------------
+
+export function syncEvidence(category = "grid_emission_factor") {
+  return apiRequest(`/api/evidence/sync?category=${category}`, {
+    method: "POST",
+  });
+}
+
+export function getEvidenceItems() {
+  return apiRequest("/api/evidence/");
 }

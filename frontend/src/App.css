@@ -1296,6 +1296,12 @@
   font-size: 0.875rem;
 }
 
+.status-alert.status-alert-error {
+  background-color: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #f87171;
+}
+
 .status-alert .status-text {
   flex: 1;
 }

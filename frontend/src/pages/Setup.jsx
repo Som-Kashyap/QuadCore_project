@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   FactoryIcon,
   DocumentIcon,
@@ -9,7 +9,18 @@ import {
   SyncIcon,
   InfoIcon,
 } from "../components/Icons";
-
+import {
+  createFactory,
+  createReportingPeriod,
+  uploadDocument,
+  createElectricityRecord,
+  syncEvidence,
+  calculateFootprint,
+  exportReport,
+  saveCalculationResult,
+  isAuthenticated,
+} from "../api";
+import AuthPanel from "../AuthPanel";
 
 const initialFactory = {
   name: "",
@@ -26,6 +37,7 @@ const initialPeriod = {
 };
 
 export default function Setup() {
+  const [authed, setAuthed] = useState(isAuthenticated());
   const [factory, setFactory] = useState(initialFactory);
   const [period, setPeriod] = useState(initialPeriod);
   const [electricityBill, setElectricityBill] = useState(null);
@@ -39,10 +51,27 @@ export default function Setup() {
 
   const [documentStatus, setDocumentStatus] = useState("empty");
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("info"); // "info" | "error" | "success"
   const [activeStep, setActiveStep] = useState(1);
+
+  const [createdFirmId, setCreatedFirmId] = useState(null);
+  const [createdPeriodId, setCreatedPeriodId] = useState(null);
+  const [uploadedDocId, setUploadedDocId] = useState(null);
+  const [syncedFactor, setSyncedFactor] = useState(null);
+  const [calculationResult, setCalculationResult] = useState(null);
 
   const [factorStatus, setFactorStatus] = useState("not_synced");
   const [calculationStatus, setCalculationStatus] = useState("not_calculated");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setAuthed(isAuthenticated());
+  }, []);
+
+  function setFeedback(msg, type = "info") {
+    setMessage(msg);
+    setMessageType(type);
+  }
 
   function updateFactory(event) {
     const { name, value } = event.target;
@@ -61,115 +90,244 @@ export default function Setup() {
     setCalculationStatus("not_calculated");
   }
 
-  function handleFactorySubmit(event) {
+  // ---------------------------------------------------------------------------
+  // STEP 1: Factory Profile
+  // ---------------------------------------------------------------------------
+  async function handleFactorySubmit(event) {
     event.preventDefault();
-    setMessage(
-      "Factory details validated locally. Backend saving is not connected yet."
-    );
-    setActiveStep(2);
+    if (!factory.name.trim() || !factory.state.trim()) {
+      setFeedback("Factory name and state are required.", "error");
+      return;
+    }
+
+    setLoading(true);
+    setFeedback("Registering factory profile in database...", "info");
+    try {
+      const res = await createFactory(factory);
+      setCreatedFirmId(res.id);
+      setFeedback(`Factory "${res.name}" successfully registered. Proceed to Step 2.`, "success");
+      setActiveStep(2);
+    } catch (err) {
+      setFeedback(`Failed to save factory profile: ${err.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function handlePeriodSubmit(event) {
+  // ---------------------------------------------------------------------------
+  // STEP 2: Reporting Period
+  // ---------------------------------------------------------------------------
+  async function handlePeriodSubmit(event) {
     event.preventDefault();
     if (period.end_date < period.start_date) {
-      setMessage("The end date must be on or after the start date.");
+      setFeedback("The end date must be on or after the start date.", "error");
       return;
     }
-    setMessage(
-      "Reporting period validated locally. Backend saving is not connected yet."
-    );
-    setActiveStep(3);
+
+    if (!createdFirmId) {
+      setFeedback("Please register and save your factory profile in Step 1 first.", "error");
+      setActiveStep(1);
+      return;
+    }
+
+    setLoading(true);
+    setFeedback("Creating reporting period boundary...", "info");
+    try {
+      const res = await createReportingPeriod({
+        firm_id: createdFirmId,
+        start_date: period.start_date,
+        end_date: period.end_date,
+        production_tonnes: period.production_tonnes ? Number(period.production_tonnes) : null,
+      });
+      setCreatedPeriodId(res.id);
+      setFeedback(`Reporting period ${res.start_date} to ${res.end_date} established. Proceed to upload evidence.`, "success");
+      setActiveStep(3);
+    } catch (err) {
+      setFeedback(`Failed to create reporting period: ${err.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function handleFileChange(event) {
+  // ---------------------------------------------------------------------------
+  // STEP 3: Evidence Upload & Activity Record Verification
+  // ---------------------------------------------------------------------------
+  async function handleFileChange(event) {
     const file = event.target.files?.[0] || null;
     setElectricityBill(file);
-    setDocumentStatus(file ? "pending" : "empty");
-    setDocumentFields({
-      supplier: "",
-      billingPeriod: "",
-      electricityKwh: "",
-      invoiceNumber: "",
-    });
-    setCalculationStatus("not_calculated");
+    if (!file) return;
 
-    if (file) {
-      setMessage(
-        `${file.name} selected. Actual upload and extraction require the backend API.`
-      );
+    if (!createdPeriodId) {
+      setFeedback("Please establish your reporting period in Step 2 before uploading bills.", "error");
+      setActiveStep(2);
+      return;
+    }
+
+    setLoading(true);
+    setFeedback(`Uploading "${file.name}" and parsing metrics via Groq LLM Vision...`, "info");
+    try {
+      const docRes = await uploadDocument(file, createdPeriodId, "electricity_bill");
+      setUploadedDocId(docRes.id);
+      setDocumentStatus("pending");
+
+      // Auto-populate extracted fields if returned by extractor
+      const raw = docRes.extraction_raw_json?.extracted_fields || docRes.extraction_raw_json;
+      if (raw && typeof raw === "object") {
+        setDocumentFields({
+          supplier: raw.supplier_name || raw.utility_name || "State Electricity Board",
+          billingPeriod: raw.billing_period || `${period.start_date} - ${period.end_date}`,
+          electricityKwh: String(raw.consumed_kwh || raw.units_kwh || ""),
+          invoiceNumber: raw.invoice_number || raw.bill_number || "",
+        });
+      }
+      setFeedback(`"${file.name}" uploaded. Review and confirm the extracted consumption below.`, "success");
+    } catch (err) {
+      setFeedback(`Upload error: ${err.message}`, "error");
+    } finally {
+      setLoading(false);
     }
   }
 
-  function handleDocumentDecision(status) {
+  async function handleDocumentDecision(status) {
     if (status === "confirmed") {
-      if (
-        !documentFields.electricityKwh ||
-        Number(documentFields.electricityKwh) <= 0
-      ) {
-        setMessage("Enter a valid electricity consumption before confirming.");
+      if (!documentFields.electricityKwh || Number(documentFields.electricityKwh) <= 0) {
+        setFeedback("Please enter a valid electricity consumption (kWh) > 0 before confirming.", "error");
+        return;
+      }
+      if (!createdPeriodId) {
+        setFeedback("Reporting period is missing. Please complete Step 2.", "error");
+        setActiveStep(2);
         return;
       }
 
-      if (!electricityBill) {
-        setMessage("Upload an electricity bill before confirming its details.");
-        return;
+      setLoading(true);
+      setFeedback("Recording verified electricity consumption to audit ledger...", "info");
+      try {
+        await createElectricityRecord({
+          reporting_period_id: createdPeriodId,
+          source_document_id: uploadedDocId || null,
+          consumed_kwh: Number(documentFields.electricityKwh),
+          peak_demand_kva: factory.contracted_demand_mva ? Number(factory.contracted_demand_mva) * 1000 : null,
+          power_factor: 0.95,
+          status: "confirmed",
+        });
+
+        setDocumentStatus("confirmed");
+        setFeedback("Electricity evidence confirmed and recorded into audit ledger. Ready for calculation.", "success");
+        setActiveStep(4);
+      } catch (err) {
+        setFeedback(`Failed to save activity record: ${err.message}`, "error");
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      setDocumentStatus(status);
+      setFeedback(status === "flagged" ? "Document flagged for audit discrepancy." : "Document discarded.", "info");
+      if (status === "discarded") {
+        setElectricityBill(null);
+        setDocumentFields({
+          supplier: "",
+          billingPeriod: "",
+          electricityKwh: "",
+          invoiceNumber: "",
+        });
       }
     }
+  }
 
-    setDocumentStatus(status);
-    setCalculationStatus("not_calculated");
-
-    setMessage(
-      status === "confirmed"
-        ? "Details marked as confirmed locally. Backend verification is not connected yet."
-        : status === "flagged"
-          ? "Document flagged locally for review."
-          : "Document discarded from this screen."
-    );
-
-    if (status === "discarded") {
-      setElectricityBill(null);
-      setDocumentFields({
-        supplier: "",
-        billingPeriod: "",
-        electricityKwh: "",
-        invoiceNumber: "",
-      });
+  // ---------------------------------------------------------------------------
+  // STEP 4: Live Evidence Sync & Engine Calculation
+  // ---------------------------------------------------------------------------
+  async function handleSync() {
+    setLoading(true);
+    setFeedback("Querying TinyFish agent for latest CEA CO2 Baseline Database factor...", "info");
+    try {
+      const res = await syncEvidence("grid_emission_factor");
+      setFactorStatus("synced");
+      setSyncedFactor(res);
+      setFeedback(`Synced: ${res.value} ${res.unit} (${res.source_title}) verified by TinyFish.`, "success");
+    } catch (err) {
+      setFeedback(`Sync notification: ${err.message}`, "info");
+    } finally {
+      setLoading(false);
     }
   }
 
-  function handleSync() {
-    setFactorStatus("not_synced");
-    setMessage(
-      "Live evidence sync is not connected yet. No live emission factor has been retrieved."
-    );
-  }
-
-  function handleCalculate() {
-    if (
-      !period.start_date ||
-      !period.end_date ||
-      !period.production_tonnes ||
-      Number(period.production_tonnes) <= 0
-    ) {
-      setMessage("Complete the reporting period and production details first.");
+  async function handleCalculate() {
+    if (!createdPeriodId) {
+      setFeedback("Reporting period is missing. Complete prior steps first.", "error");
       return;
     }
-
     if (documentStatus !== "confirmed") {
-      setMessage("Review and confirm the electricity bill details first.");
+      setFeedback("Please confirm electricity consumption details in Step 3 first.", "error");
+      setActiveStep(3);
       return;
     }
 
-    setCalculationStatus("not_calculated");
-    setMessage(
-      "Calculation requires the backend API and a validated emission factor. No emissions result has been generated."
-    );
+    setLoading(true);
+    setFeedback("Running deterministic GHG Protocol calculation engine and renewable pathways...", "info");
+    try {
+      const calcRes = await calculateFootprint(createdPeriodId);
+      setCalculationStatus("calculated");
+      setCalculationResult(calcRes);
+
+      // Save complete dataset for Results page
+      saveCalculationResult({
+        ...calcRes,
+        period_id: createdPeriodId,
+        factory: factory,
+        period: period,
+        evidence: syncedFactor,
+        electricityKwh: documentFields.electricityKwh,
+      });
+
+      setFeedback(
+        `Calculation complete! Total emissions: ${calcRes.total_emissions_tco2e} tCO2e (${calcRes.specific_emissions_tco2e_per_tonne || "N/A"} tCO2e/t).`,
+        "success"
+      );
+    } catch (err) {
+      setFeedback(`Calculation error: ${err.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function handleExport() {
-    setMessage(
-      "Report export will be available once the backend report API is connected."
+  async function handleExport() {
+    if (!createdPeriodId) {
+      setFeedback("Run calculation first before exporting report.", "error");
+      return;
+    }
+    setLoading(true);
+    setFeedback("Generating and archiving frozen audit report artifact...", "info");
+    try {
+      const res = await exportReport(createdPeriodId, "pdf");
+      setFeedback(`Report archived successfully! Title: "${res.report_title}"`, "success");
+    } catch (err) {
+      setFeedback(`Export error: ${err.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // AUTH GUARD
+  // ---------------------------------------------------------------------------
+  if (!authed) {
+    return (
+      <div className="setup-page">
+        <div className="container" style={{ maxWidth: "600px", margin: "2rem auto" }}>
+          <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
+            <span className="aside-tag">Authentication Required</span>
+            <h2 style={{ color: "var(--color-cream, #e4e2dd)", marginTop: "0.5rem" }}>
+              Sign in to start your factory audit
+            </h2>
+            <p style={{ color: "var(--color-muted, #8b949e)", fontSize: "0.95rem" }}>
+              QuadCore enforces tenant data isolation. Create an account or sign in to save your factory baseline, activity records, and audit reports.
+            </p>
+          </div>
+          <AuthPanel onAuthenticated={() => setAuthed(true)} />
+        </div>
+      </div>
     );
   }
 
@@ -195,7 +353,7 @@ export default function Setup() {
     {
       num: 4,
       title: "Results & report",
-      desc: "CEA grid sync & draft CBAM generation",
+      desc: "CEA grid sync & emissions assessment",
       icon: CalculatorIcon,
     },
   ];
@@ -205,7 +363,7 @@ export default function Setup() {
       <div className="container">
         {/* Status Toast / Alert */}
         {message && (
-          <div className="status-alert" role="status">
+          <div className={`status-alert ${messageType === "error" ? "status-alert-error" : ""}`} role="status">
             <InfoIcon className="w-5 h-5 flex-shrink-0" />
             <span className="status-text">{message}</span>
             <button
@@ -227,8 +385,7 @@ export default function Setup() {
                 <span className="aside-tag">Onboarding Workflow</span>
                 <h2 className="aside-title">What happens next</h2>
                 <p className="aside-desc">
-                  To compute your CBAM specific embedded emissions, follow these four
-                  stages. Each stage keeps your raw data auditable.
+                  To compute your factory's specific emissions and decarbonization pathways, follow these four stages under CEA and national standards.
                 </p>
               </div>
 
@@ -277,8 +434,7 @@ export default function Setup() {
                   />
                 </div>
                 <p className="aside-note">
-                  All company details and document extracts stay strictly confidential
-                  on your infrastructure.
+                  All company details and document extracts stay strictly confidential and tenant-isolated in PostgreSQL.
                 </p>
               </div>
             </div>
@@ -344,7 +500,7 @@ export default function Setup() {
                   <span className="metric-tag">Declared Production</span>
                   <strong className="metric-val">
                     {period.production_tonnes
-                      ? `${period.production_tonnes} tonnes`
+                      ? `${Number(period.production_tonnes).toLocaleString()} tonnes`
                       : "Not entered"}
                   </strong>
                 </div>
@@ -360,7 +516,9 @@ export default function Setup() {
               </div>
 
               <p className="mint-preview-footnote">
-                Local draft preview. Data will be saved to your CarbonLedger account upon API connection.
+                {createdFirmId
+                  ? `Connected to database (Firm ID: ${createdFirmId.slice(0, 8)}... · Period: ${createdPeriodId || "Pending"})`
+                  : "Draft mode. Complete Step 1 to save to backend."}
               </p>
             </div>
 
@@ -375,7 +533,7 @@ export default function Setup() {
                     </h2>
                     <p className="form-card-subtitle">
                       Enter the legal entity details and plant electrical capacity.
-                      This links your production to the correct regional DISCOM and grid.
+                      This links your production to the regional DISCOM and CEA emission benchmark.
                     </p>
                   </div>
                 </div>
@@ -410,11 +568,11 @@ export default function Setup() {
                       className="pill-input"
                       value={factory.state}
                       onChange={updateFactory}
-                      placeholder="e.g. Chhattisgarh, Punjab, Odisha"
+                      placeholder="e.g. Chhattisgarh, Punjab, Odisha, Gujarat"
                       required
                     />
                     <span className="field-hint">
-                      Required to map your plant to the corresponding CEA regional grid factor
+                      Required to map your plant to regional CEA grid factors & open access policy
                     </span>
                   </div>
 
@@ -432,7 +590,7 @@ export default function Setup() {
                         className="pill-input"
                         value={factory.roof_area_sqm}
                         onChange={updateFactory}
-                        placeholder="e.g. 15000 (Optional for solar potential)"
+                        placeholder="e.g. 15000 (For rooftop solar potential)"
                       />
                     </div>
 
@@ -449,14 +607,14 @@ export default function Setup() {
                         className="pill-input"
                         value={factory.contracted_demand_mva}
                         onChange={updateFactory}
-                        placeholder="e.g. 10.5 (Optional)"
+                        placeholder="e.g. 3.5 (≥0.1 MVA qualifies for Green Open Access)"
                       />
                     </div>
                   </div>
 
                   <div className="form-group">
                     <label htmlFor="tariff_category" className="pill-label">
-                      Electricity tariff category
+                      Tariff category (DISCOM)
                     </label>
                     <input
                       id="tariff_category"
@@ -464,20 +622,17 @@ export default function Setup() {
                       className="pill-input"
                       value={factory.tariff_category}
                       onChange={updateFactory}
-                      placeholder="e.g. HT-Industrial / Heavy Arc Furnace"
+                      placeholder="e.g. HT Industrial / EHT 33kV"
                     />
                   </div>
 
                   <div className="form-actions-row">
-                    <button type="submit" className="pill-button pill-button-primary">
-                      Save company details
-                    </button>
                     <button
-                      type="button"
-                      className="pill-button pill-button-secondary"
-                      onClick={() => setActiveStep(2)}
+                      type="submit"
+                      className="pill-button pill-button-primary"
+                      disabled={loading}
                     >
-                      Next: Reporting period →
+                      {loading ? "Saving to database..." : "Save factory & proceed →"}
                     </button>
                   </div>
                 </form>
@@ -491,11 +646,10 @@ export default function Setup() {
                   <div>
                     <span className="step-eyebrow">STEP 02</span>
                     <h2 id="heading-step-2" className="form-card-title">
-                      Reporting period & production volume
+                      Audit reporting period & output
                     </h2>
                     <p className="form-card-subtitle">
-                      Specify the accounting window and total finished steel billets
-                      cast during this timeframe.
+                      Specify the monthly or quarterly boundary and total finished steel production tonnage.
                     </p>
                   </div>
                 </div>
@@ -504,7 +658,7 @@ export default function Setup() {
                   <div className="form-row-2">
                     <div className="form-group">
                       <label htmlFor="start_date" className="pill-label">
-                        Start date <span className="req">*</span>
+                        Period start date <span className="req">*</span>
                       </label>
                       <input
                         id="start_date"
@@ -519,13 +673,12 @@ export default function Setup() {
 
                     <div className="form-group">
                       <label htmlFor="end_date" className="pill-label">
-                        End date <span className="req">*</span>
+                        Period end date <span className="req">*</span>
                       </label>
                       <input
                         id="end_date"
                         name="end_date"
                         type="date"
-                        min={period.start_date || undefined}
                         className="pill-input"
                         value={period.end_date}
                         onChange={updatePeriod}
@@ -536,23 +689,22 @@ export default function Setup() {
 
                   <div className="form-group">
                     <label htmlFor="production_tonnes" className="pill-label">
-                      Production during this period (tonnes) <span className="req">*</span>
+                      Finished steel billets produced (tonnes) <span className="req">*</span>
                     </label>
                     <input
                       id="production_tonnes"
                       name="production_tonnes"
                       type="number"
-                      min="0.01"
+                      min="0.1"
                       step="any"
                       className="pill-input"
                       value={period.production_tonnes}
                       onChange={updatePeriod}
-                      placeholder="e.g. 100"
+                      placeholder="e.g. 5000"
                       required
                     />
                     <span className="field-hint">
-                      Crucial denominator: Used to calculate the hero number{" "}
-                      <strong>specific embedded emissions (tCO2e per tonne)</strong>.
+                      The net good production tonnage used as denominator for specific emissions intensity (tCO2e/t)
                     </span>
                   </div>
 
@@ -564,44 +716,44 @@ export default function Setup() {
                     >
                       ← Back
                     </button>
-                    <button type="submit" className="pill-button pill-button-primary">
-                      Save reporting period →
+                    <button
+                      type="submit"
+                      className="pill-button pill-button-primary"
+                      disabled={loading}
+                    >
+                      {loading ? "Saving period..." : "Save period & proceed →"}
                     </button>
                   </div>
                 </form>
               </section>
             )}
 
-            {/* STEP 3: Electricity Evidence & Bill Extraction */}
+            {/* STEP 3: Electricity Evidence & Bill Upload */}
             {activeStep === 3 && (
               <section className="form-card" aria-labelledby="heading-step-3">
                 <div className="form-card-header">
                   <div>
                     <span className="step-eyebrow">STEP 03</span>
                     <h2 id="heading-step-3" className="form-card-title">
-                      Electricity bill & AI verification
+                      Electricity bill evidence upload
                     </h2>
                     <p className="form-card-subtitle">
-                      Upload your DISCOM high-tension power invoice. Review and confirm
-                      the extracted kWh reading side by side.
+                      Upload your DISCOM utility invoice. The backend extracts consumption and attaches it to the audit ledger.
                     </p>
                   </div>
                 </div>
 
-                {/* Drag and Drop style file field */}
-                <div className="upload-container">
-                  <label className="pill-upload-dropzone" htmlFor="electricityBill">
-                    <div className="dropzone-icon-box">
-                      <UploadIcon className="w-8 h-8 text-forest" />
-                    </div>
-                    <div className="dropzone-text">
-                      <strong className="dropzone-filename">
+                <div className="dropzone-container">
+                  <label htmlFor="electricityBill" className="pill-dropzone">
+                    <div className="dropzone-content">
+                      <UploadIcon className="w-10 h-10 text-forest dropzone-icon" />
+                      <strong className="dropzone-text">
                         {electricityBill
                           ? electricityBill.name
-                          : "Drop electricity bill here, or browse files"}
+                          : "Drop electricity bill here (.pdf, .docx, .png, .jpg), or browse"}
                       </strong>
                       <span className="dropzone-spec">
-                        Supported: PDF, PNG, JPG (State DISCOM invoices, e.g. CSPDCL, PSPCL, DHBVN)
+                        Automated Vision extraction via Groq Llama-3.3 Vision
                       </span>
                       {electricityBill && (
                         <span className="dropzone-filesize">
@@ -612,14 +764,11 @@ export default function Setup() {
                     <input
                       id="electricityBill"
                       type="file"
-                      accept=".pdf,.png,.jpg,.jpeg"
+                      accept=".pdf,.docx,.png,.jpg,.jpeg"
                       onChange={handleFileChange}
                       className="visually-hidden"
                     />
                   </label>
-                  <p className="field-hint text-center">
-                    The file is selected in your browser; backend AI parsing activates upon network upload.
-                  </p>
                 </div>
 
                 {/* Verification Card */}
@@ -627,7 +776,7 @@ export default function Setup() {
                   <div className="verification-box-header">
                     <div>
                       <h4 className="verification-box-title">
-                        Side-by-side human verification
+                        Side-by-side verification
                       </h4>
                       <p className="verification-box-sub">
                         Verify key billing data before it counts toward your carbon ledger
@@ -635,7 +784,7 @@ export default function Setup() {
                     </div>
                     <span className={`status-pill ${documentStatus}`}>
                       {documentStatus === "confirmed"
-                        ? "Confirmed locally"
+                        ? "Confirmed in Database"
                         : documentStatus === "flagged"
                           ? "Flagged for review"
                           : documentStatus === "pending"
@@ -667,10 +816,10 @@ export default function Setup() {
                         <input
                           id="billingPeriod"
                           name="billingPeriod"
-                          type="month"
                           className="pill-input"
                           value={documentFields.billingPeriod}
                           onChange={updateDocument}
+                          placeholder="e.g. Jan 2026"
                         />
                       </div>
 
@@ -702,10 +851,11 @@ export default function Setup() {
                         className="pill-input highlight"
                         value={documentFields.electricityKwh}
                         onChange={updateDocument}
-                        placeholder="e.g. 111732"
+                        placeholder="e.g. 1500000"
+                        required
                       />
                       <span className="field-hint">
-                        Total active import energy (kWh) recorded on your primary meter
+                        Total active import energy (kWh) recorded on your primary HT meter
                       </span>
                     </div>
 
@@ -713,15 +863,15 @@ export default function Setup() {
                       <button
                         type="button"
                         className="pill-button pill-button-primary"
-                        disabled={!electricityBill}
+                        disabled={loading || !documentFields.electricityKwh}
                         onClick={() => handleDocumentDecision("confirmed")}
                       >
-                        Confirm details
+                        {loading ? "Saving to database..." : "Confirm & Save into Audit Trail"}
                       </button>
                       <button
                         type="button"
                         className="pill-button pill-button-secondary"
-                        disabled={!electricityBill}
+                        disabled={loading}
                         onClick={() => handleDocumentDecision("flagged")}
                       >
                         Flag discrepancy
@@ -729,7 +879,7 @@ export default function Setup() {
                       <button
                         type="button"
                         className="pill-button pill-button-outline"
-                        disabled={!electricityBill}
+                        disabled={loading}
                         onClick={() => handleDocumentDecision("discarded")}
                       >
                         Discard
@@ -764,11 +914,10 @@ export default function Setup() {
                   <div>
                     <span className="step-eyebrow">STEP 04</span>
                     <h2 id="heading-step-4" className="form-card-title">
-                      Emissions assessment & CBAM draft
+                      Emissions calculation & CEA audit sync
                     </h2>
                     <p className="form-card-subtitle">
-                      Sync external emission factors from CEA and calculate specific
-                      embedded emissions.
+                      Sync live regulatory factors from CEA via TinyFish and execute deterministic emission calculations.
                     </p>
                   </div>
                 </div>
@@ -780,23 +929,28 @@ export default function Setup() {
                       <SyncIcon className="w-5 h-5 text-forest" />
                     </div>
                     <div>
-                      <h4 className="sync-title">CEA Grid Emission Factor</h4>
+                      <h4 className="sync-title">CEA Grid Emission Factor (TinyFish Agent)</h4>
                       <p className="sync-desc">
-                        Fetch certified regional grid baseline for {factory.state || "your state"}{" "}
-                        (Central Electricity Authority CO2 Database v20).
+                        Fetch certified Indian National Grid baseline factor from Central Electricity Authority (CO2 Database v20).
+                        {syncedFactor && (
+                          <span style={{ display: "block", color: "var(--color-green, #1b4d3e)", fontWeight: 600, marginTop: "0.25rem" }}>
+                            Current: {syncedFactor.value} {syncedFactor.unit} · {syncedFactor.source_title}
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>
                   <div className="sync-box-action">
                     <span className={`status-pill ${factorStatus}`}>
-                      {factorStatus === "synced" ? "Synced" : "Not connected"}
+                      {factorStatus === "synced" ? "Synced with CEA" : "Ready to sync"}
                     </span>
                     <button
                       type="button"
                       className="pill-button pill-button-secondary"
+                      disabled={loading}
                       onClick={handleSync}
                     >
-                      Sync live factor
+                      {loading ? "Agent running..." : "Sync live CEA factor"}
                     </button>
                   </div>
                 </div>
@@ -808,34 +962,36 @@ export default function Setup() {
                   </div>
                   <h3 className="calc-title">
                     {calculationStatus === "calculated"
-                      ? "Calculation complete"
-                      : "Engine ready for calculation"}
+                      ? "Calculation complete!"
+                      : "Ready to run emission engine"}
                   </h3>
                   <p className="calc-desc">
-                    Emissions are calculated by combining verified kWh with the CEA grid
-                    emission coefficient and allocating over production tonnage.
+                    Combines your verified {documentFields.electricityKwh ? Number(documentFields.electricityKwh).toLocaleString() : 0} kWh with the official CEA grid emission coefficient ({syncedFactor ? syncedFactor.value : "0.727"} tCO2/MWh) to generate Scope 2 totals and decarbonization pathways.
                   </p>
 
                   <div className="calc-actions-row">
                     <button
                       type="button"
                       className="pill-button pill-button-primary"
+                      disabled={loading}
                       onClick={handleCalculate}
                     >
-                      Calculate emissions
+                      {loading ? "Calculating..." : "Calculate emissions"}
                     </button>
                     <button
                       type="button"
                       className="pill-button pill-button-outline"
+                      disabled={loading || !calculationResult}
                       onClick={handleExport}
                     >
-                      Export draft report
+                      {loading ? "Archiving..." : "Archive & Export report"}
                     </button>
                     <a
                       href="#/results"
                       className="pill-button pill-button-translucent-dark"
+                      style={{ fontWeight: 600 }}
                     >
-                      View live sample report →
+                      {calculationStatus === "calculated" ? "View full audit report & pathways →" : "View sample results →"}
                     </a>
                   </div>
                 </div>

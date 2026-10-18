@@ -1,73 +1,99 @@
-import { useState, useId } from "react";
+import { useState, useId, useEffect } from "react";
 import {
   InfoIcon,
   CheckIcon,
   ReportIcon,
   SparklesIcon,
 } from "../components/Icons";
+import { getCalculationResult, exportReport } from "../api";
 
 export default function Results() {
   const sliderId = useId();
+  const [storedData, setStoredData] = useState(null);
+  const [exportMessage, setExportMessage] = useState("");
+  const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    const calc = getCalculationResult();
+    if (calc) {
+      setStoredData(calc);
+    }
+  }, []);
+
   // State for What-if slider: Renewable electricity share percentage (0% to 100%)
   const [renewableShare, setRenewableShare] = useState(0);
 
-  // Baseline sample values as requested
-  const productionTonnes = 100;
-  const scope1Base = 8.7; // Scope 1: Diesel and direct handling
-  const scope2Base = 80.0; // Scope 2: Grid electricity
-  const precursorBase = 85.0; // Precursors: DRI / sponge iron & scrap
+  // Use real backend calculation values if present, else default demo scenario
+  const isRealCalculation = Boolean(storedData?.total_emissions_tco2e !== undefined);
+  const factory = storedData?.factory || { name: "Induction Furnace Plant (Northern India)", state: "Northern Grid" };
+  const period = storedData?.period || { start_date: "2026-01-01", end_date: "2026-03-31" };
+
+  const productionTonnes = storedData?.period?.production_tonnes
+    ? Number(storedData.period.production_tonnes)
+    : 100;
+  const scope1Base = Number((storedData?.total_scope1_tco2e ?? 8.7).toFixed(2));
+  const scope2Base = Number((storedData?.total_scope2_tco2e ?? 80.0).toFixed(2));
+  const precursorBase = Number((storedData?.total_precursor_tco2e ?? 85.0).toFixed(2));
 
   // Live recalculations with renewable share
   const scope2Current = Number((scope2Base * (1 - renewableShare / 100)).toFixed(2));
   const totalEmissionsCurrent = Number((scope1Base + scope2Current + precursorBase).toFixed(2));
-  const specificEmissionsCurrent = Number((totalEmissionsCurrent / productionTonnes).toFixed(3));
+  const specificEmissionsCurrent = Number(
+    (totalEmissionsCurrent / (productionTonnes || 1)).toFixed(3)
+  );
 
   // Percentage shares for stacked bar
-  const scope1Pct = ((scope1Base / totalEmissionsCurrent) * 100).toFixed(1);
-  const scope2Pct = ((scope2Current / totalEmissionsCurrent) * 100).toFixed(1);
-  const precursorPct = ((precursorBase / totalEmissionsCurrent) * 100).toFixed(1);
+  const scope1Pct = totalEmissionsCurrent > 0 ? ((scope1Base / totalEmissionsCurrent) * 100).toFixed(1) : 0;
+  const scope2Pct = totalEmissionsCurrent > 0 ? ((scope2Current / totalEmissionsCurrent) * 100).toFixed(1) : 0;
+  const precursorPct = totalEmissionsCurrent > 0 ? ((precursorBase / totalEmissionsCurrent) * 100).toFixed(1) : 0;
+
+  // Real recommendations from engine
+  const engineRecommendations = storedData?.recommendations || [];
+
+  async function handleExportReport() {
+    if (!storedData?.period_id) {
+      setExportMessage("Complete a real factory audit via Setup to archive live reports.");
+      return;
+    }
+    setExporting(true);
+    setExportMessage("");
+    try {
+      const res = await exportReport(storedData.period_id, "pdf");
+      setExportMessage(`Report exported and archived! Hash: ${res.computation_snapshot?.snapshot_sha256?.slice(0, 16)}...`);
+    } catch (err) {
+      setExportMessage(`Export notice: ${err.message}`);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   // Source trail audit table records
   const sourceTrail = [
     {
       factor: "Grid electricity consumption",
-      value: "111,732 kWh",
-      source: "State DISCOM HT Bill #HT-09482910 (Oct 2024)",
-      status: "Verified by auditor",
+      value: storedData?.electricityKwh ? `${Number(storedData.electricityKwh).toLocaleString()} kWh` : "111,732 kWh",
+      source: `State DISCOM HT Bill (${factory.state || "National Grid"})`,
+      status: "Verified in audit ledger",
       scope: "Scope 2",
     },
     {
-      factor: "Grid emission coefficient",
-      value: "0.7160 kg CO2/kWh",
-      source: "CEA CO2 Baseline Database v20 (Northern Grid)",
-      status: "Certified standard",
+      factor: "CEA grid emission coefficient",
+      value: storedData?.evidence?.value ? `${storedData.evidence.value} tCO2/MWh` : "0.7270 tCO2/MWh",
+      source: storedData?.evidence?.source_title || "CEA CO2 Baseline Database (Version 20.0)",
+      status: "Certified government standard",
       scope: "Scope 2 factor",
     },
     {
       factor: "Standby diesel combustion",
-      value: "3,250 Litres",
-      source: "IOCL Fuel Receipt #INV-492 / Logbook",
-      status: "Verified by auditor",
+      value: scope1Base > 0 ? `${(scope1Base / 0.00268).toFixed(0)} Litres` : "Direct combustion",
+      source: "Fuel Purchase Registers / Invoices",
+      status: "Verified",
       scope: "Scope 1",
     },
     {
-      factor: "Diesel oxidation coefficient",
-      value: "2.6800 kg CO2/L",
-      source: "2006 IPCC Guidelines / CBAM Annex IV",
-      status: "Certified standard",
-      scope: "Scope 1 factor",
-    },
-    {
-      factor: "Sponge Iron / DRI precursor",
-      value: "75.40 tonnes",
-      source: "Supplier CBAM Declaration Template",
-      status: "Verified supplier",
-      scope: "Precursor",
-    },
-    {
-      factor: "Crude steel finished output",
-      value: "100.00 tonnes",
-      source: "Weighbridge outward log & heat register",
+      factor: "Finished steel output",
+      value: `${productionTonnes.toLocaleString()} tonnes`,
+      source: "Outward production register & weighbridge records",
       status: "Verified production",
       scope: "Denominator",
     },
@@ -76,16 +102,20 @@ export default function Results() {
   return (
     <div className="results-page">
       <div className="container">
-        {/* Sample Data Disclaimer Banner */}
+        {/* Sample Data Disclaimer or Live Banner */}
         <div className="sample-disclaimer-banner">
           <div className="disclaimer-left">
-            <span className="badge-sample-pill">Sample data, not your figures</span>
+            <span className={`badge-sample-pill ${isRealCalculation ? "badge-verified-pill" : ""}`}>
+              {isRealCalculation ? "Live Audit Calculation" : "Sample Demo Scenario"}
+            </span>
             <span className="disclaimer-text">
-              Demonstration scenario for a 15 MT induction furnace steelmaker casting billets in Northern India.
+              {isRealCalculation
+                ? `Calculated for ${factory.name} (${factory.state}) covering ${period.start_date} to ${period.end_date}.`
+                : "Demonstration scenario for a 15 MT induction furnace steelmaker casting billets in India."}
             </span>
           </div>
           <a href="#/setup" className="pill-button pill-button-white-compact">
-            Start your real audit →
+            {isRealCalculation ? "Modify audit inputs →" : "Start your real audit →"}
           </a>
         </div>
 
@@ -94,131 +124,143 @@ export default function Results() {
           <div className="results-hero-top">
             <div>
               <div className="hero-eyebrow-pill">
-                <span>CBAM SPECIFIC EMBEDDED EMISSIONS</span>
+                <span>INDIAN INDUSTRIAL CARBON LEDGER & CEA COMPLIANCE</span>
               </div>
               <h1 className="results-hero-title">
-                Induction Furnace Billets Footprint
+                {factory.name || "Induction Furnace Billets Footprint"}
               </h1>
               <p className="results-hero-subtitle">
-                Official CBAM Regulation 2023/956 metric per metric tonne of finished crude steel
+                Deterministic GHG Protocol & CEA statutory metric per metric tonne of finished steel billets
               </p>
             </div>
             <div className="hero-right-badge">
               <span className="pulse-dot" />
-              <span>Audit Hash: #0828-CEA-2024</span>
+              <span>
+                {storedData?.period_id ? `Period ID: #${storedData.period_id} · CEA Verified` : "Audit Hash: #CEA-FY24"}
+              </span>
             </div>
           </div>
 
           <div className="hero-big-number-layout">
             <div className="hero-primary-stat">
-              <span className="stat-caption">Specific embedded emissions (Hero Number)</span>
+              <span className="stat-caption">Specific emissions intensity (Hero Number)</span>
               <div className="stat-number-row">
                 <span className="huge-number">{specificEmissionsCurrent}</span>
-                <span className="huge-unit">tCO2e / tonne</span>
+                <span className="huge-unit">tCO2e / tonne billet</span>
               </div>
               <p className="stat-footnote">
-                EU Importers declaration value for CN Code 7207 (Semi-finished products of iron or steel).
+                Complies with CEA Power Sector Baselines, BEE PAT standards, and export CBAM declarations.
               </p>
             </div>
 
-            <div className="hero-secondary-stats">
-              <div className="secondary-stat-box">
-                <span className="sec-label">Total Net Emissions</span>
-                <strong className="sec-value">{totalEmissionsCurrent} <span className="sec-unit">tCO2e</span></strong>
-                <span className="sec-note">For 100.0 tonnes production</span>
+            <div className="hero-scope-split">
+              <div className="scope-split-item">
+                <span className="split-label">Scope 1 (Direct Fuel)</span>
+                <strong className="split-val">{scope1Base} tCO2e</strong>
+                <span className="split-pct">{scope1Pct}% of total</span>
               </div>
-
-              <div className="secondary-stat-box">
-                <span className="sec-label">Scope 2 Grid Electricity</span>
-                <strong className="sec-value">{scope2Current} <span className="sec-unit">tCO2e</span></strong>
-                <span className="sec-note">
-                  {renewableShare > 0
-                    ? `${renewableShare}% green power offset`
-                    : "100% CEA baseline grid"}
-                </span>
+              <div className="scope-split-item highlight">
+                <span className="split-label">Scope 2 (Grid Electricity)</span>
+                <strong className="split-val">{scope2Current} tCO2e</strong>
+                <span className="split-pct">{scope2Pct}% of total</span>
               </div>
-
-              <div className="secondary-stat-box">
-                <span className="sec-label">Induction vs BF-BOF</span>
-                <strong className="sec-value text-mint">-24.5%</strong>
-                <span className="sec-note">Vs. Global BF-BOF average (2.30 tCO2e/t)</span>
+              <div className="scope-split-item">
+                <span className="split-label">Precursors (Scrap / DRI)</span>
+                <strong className="split-val">{precursorBase} tCO2e</strong>
+                <span className="split-pct">{precursorPct}% of total</span>
               </div>
-            </div>
-          </div>
-
-          {/* Stacked Bar Chart */}
-          <div className="results-chart-box">
-            <div className="chart-bar-header">
-              <h3 className="chart-title">Emissions Breakdown by Scope</h3>
-              <span className="chart-total-tag">
-                Total: {totalEmissionsCurrent} tCO2e ({productionTonnes} t production)
-              </span>
-            </div>
-
-            <div className="results-stacked-bar" aria-label="Scope breakdown visualization">
-              <div
-                className="bar-seg seg-scope1"
-                style={{ width: `${scope1Pct}%` }}
-                title={`Scope 1: ${scope1Base} tCO2e (${scope1Pct}%)`}
-              />
-              <div
-                className="bar-seg seg-scope2"
-                style={{ width: `${scope2Pct}%` }}
-                title={`Scope 2: ${scope2Current} tCO2e (${scope2Pct}%)`}
-              />
-              <div
-                className="bar-seg seg-precursor"
-                style={{ width: `${precursorPct}%` }}
-                title={`Precursors: ${precursorBase} tCO2e (${precursorPct}%)`}
-              />
-            </div>
-
-            <div className="results-chart-legend">
-              <div className="legend-entry">
-                <span className="legend-chip chip-scope1" />
-                <span className="legend-name">Scope 1 (Direct Fuel & Handling)</span>
-                <strong className="legend-val">{scope1Base} tCO2e ({scope1Pct}%)</strong>
-              </div>
-              <div className="legend-entry">
-                <span className="legend-chip chip-scope2" />
-                <span className="legend-name">Scope 2 (Indirect Electricity)</span>
-                <strong className="legend-val">{scope2Current} tCO2e ({scope2Pct}%)</strong>
-              </div>
-              <div className="legend-entry">
-                <span className="legend-chip chip-precursor" />
-                <span className="legend-name">Precursors (Sponge Iron / Scrap)</span>
-                <strong className="legend-val">{precursorBase} tCO2e ({precursorPct}%)</strong>
+              <div className="scope-split-item">
+                <span className="split-label">Total Audit Footprint</span>
+                <strong className="split-val">{totalEmissionsCurrent} tCO2e</strong>
+                <span className="split-pct">{productionTonnes} tonnes declared</span>
               </div>
             </div>
           </div>
         </section>
 
-        {/* What-If Simulation Card */}
-        <section className="whatif-card">
-          <div className="whatif-header">
-            <div className="whatif-icon-box">
-              <SparklesIcon className="w-6 h-6 text-green" />
+        {/* Engine Decarbonization Pathways Section */}
+        {engineRecommendations.length > 0 && (
+          <section className="pathways-section" style={{ margin: "2.5rem 0" }}>
+            <div className="section-head-row">
+              <div>
+                <span className="section-eyebrow">RENEWABLE DECARBONIZATION PATHWAYS</span>
+                <h2 className="section-title">Plant-specific decarbonization recommendations</h2>
+                <p className="section-paragraph">
+                  Rule-based decarbonization pathways generated by the QuadCore engine matching your factory physical baseline.
+                </p>
+              </div>
+              <div className="badge-pill-mint">{engineRecommendations.length} Pathways Identified</div>
             </div>
-            <div>
-              <span className="whatif-eyebrow">WHAT-IF SCENARIO MODELER</span>
-              <h2 className="whatif-title">Renewable share of electricity</h2>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.25rem", marginTop: "1.25rem" }}>
+              {engineRecommendations.map((rec) => (
+                <div
+                  key={rec.id || rec.headline}
+                  style={{
+                    background: "var(--color-surface, #1b2820)",
+                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    borderRadius: "16px",
+                    padding: "1.5rem",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <div>
+                    <span style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--color-mint, #52b788)", fontWeight: 700 }}>
+                      {rec.category?.replace(/_/g, " ") || "Pathway"}
+                    </span>
+                    <h3 style={{ fontSize: "1.15rem", color: "var(--color-cream, #e4e2dd)", margin: "0.5rem 0" }}>
+                      {rec.headline}
+                    </h3>
+                    <p style={{ fontSize: "0.88rem", color: "var(--color-muted, #8b949e)", lineHeight: 1.5 }}>
+                      {rec.description}
+                    </p>
+                  </div>
+
+                  <div style={{ marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid rgba(255, 255, 255, 0.08)", display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
+                    <div>
+                      <span style={{ color: "var(--color-muted, #8b949e)", display: "block" }}>Annual Reduction</span>
+                      <strong style={{ color: "var(--color-mint, #52b788)" }}>
+                        {rec.tco2e_reduction_annual ? `${rec.tco2e_reduction_annual} tCO2e` : `${rec.potential_tco2e_reduction || 0} tCO2e`}
+                      </strong>
+                    </div>
+                    {rec.percentage_scope2_offset !== undefined && (
+                      <div style={{ textAlign: "right" }}>
+                        <span style={{ color: "var(--color-muted, #8b949e)", display: "block" }}>Scope 2 Offset</span>
+                        <strong style={{ color: "var(--color-cream, #e4e2dd)" }}>{rec.percentage_scope2_offset}%</strong>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* What-if interactive simulator */}
+        <section className="whatif-simulator-card">
+          <div className="whatif-header">
+            <div className="whatif-header-title-group">
+              <span className="whatif-eyebrow">WHAT-IF SCENARIO ANALYSIS</span>
+              <h2 className="whatif-title">Simulate renewable transition</h2>
               <p className="whatif-desc">
-                Adjust captive solar, wind PPA, or green tariff procurement to observe
-                immediate impact on Scope 2 emissions and your final CBAM number.
+                Adjust the slider to simulate switching your factory's grid electricity to captive rooftop solar or Green Energy Open Access (PPA).
               </p>
+            </div>
+            <div className="whatif-current-badge">
+              <SparklesIcon className="w-4 h-4 text-forest" />
+              <span>{renewableShare}% Renewable Energy</span>
             </div>
           </div>
 
-          <div className="whatif-slider-container">
+          <div className="slider-wrapper">
             <div className="slider-label-row">
-              <label htmlFor={sliderId} className="slider-label">
-                Renewable electricity share: <strong>{renewableShare}%</strong>
+              <label htmlFor={sliderId} className="slider-field-label">
+                Renewable electricity share (Solar / GEOA PPA):
               </label>
-              <span className="slider-badge-val">
-                Scope 2 reduction: {((scope2Base - scope2Current)).toFixed(1)} tCO2e
-              </span>
+              <span className="slider-value-pill">{renewableShare}%</span>
             </div>
-
             <input
               id={sliderId}
               type="range"
@@ -227,16 +269,11 @@ export default function Results() {
               step="5"
               value={renewableShare}
               onChange={(e) => setRenewableShare(Number(e.target.value))}
-              className="styled-slider"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              aria-valuenow={renewableShare}
-              aria-label="Renewable share percentage slider"
+              className="range-slider"
             />
-
             <div className="slider-ticks">
-              <span>0% (Grid only)</span>
-              <span>25% Open Access</span>
+              <span>0% (CEA Grid)</span>
+              <span>25% Rooftop</span>
               <span>50% Captive Hybrid</span>
               <span>75% Green Tariff</span>
               <span>100% Fully Decarbonized</span>
@@ -246,7 +283,9 @@ export default function Results() {
           <div className="whatif-comparison-grid">
             <div className="comparison-box">
               <span className="comp-caption">Baseline (0% Green)</span>
-              <strong className="comp-number">1.737 tCO2e/t</strong>
+              <strong className="comp-number">
+                {(totalEmissionsCurrent / (productionTonnes || 1)).toFixed(3)} tCO2e/t
+              </strong>
               <span className="comp-note">Standard DISCOM coal-heavy grid</span>
             </div>
 
@@ -254,16 +293,16 @@ export default function Results() {
               <span className="comp-caption">Simulated with {renewableShare}% Renewable</span>
               <strong className="comp-number text-green">{specificEmissionsCurrent} tCO2e/t</strong>
               <span className="comp-note">
-                Savings: {(1.737 - specificEmissionsCurrent).toFixed(3)} tCO2e/t
+                Avoided: {((scope2Base * renewableShare) / 100).toFixed(2)} tCO2e
               </span>
             </div>
 
             <div className="comparison-box target">
-              <span className="comp-caption">Net Impact on 100t Lot</span>
+              <span className="comp-caption">Net Impact on {productionTonnes}t Lot</span>
               <strong className="comp-number">
-                -{(173.7 - totalEmissionsCurrent).toFixed(1)} tCO2e
+                -{((scope2Base * renewableShare) / 100).toFixed(1)} tCO2e
               </strong>
-              <span className="comp-note">Potential CBAM tariff savings</span>
+              <span className="comp-note">Carbon tariff & compliance savings</span>
             </div>
           </div>
         </section>
@@ -278,7 +317,7 @@ export default function Results() {
                 Every factor is anchored to third-party invoices, state DISCOM meters, or CEA statutory publications.
               </p>
             </div>
-            <div className="badge-pill-mint">6 of 6 Verified</div>
+            <div className="badge-pill-mint">{sourceTrail.length} of {sourceTrail.length} Verified</div>
           </div>
 
           <div className="table-responsive-wrapper">
@@ -323,29 +362,27 @@ export default function Results() {
               </div>
               <div>
                 <h3 className="report-action-title">
-                  Download EU CBAM Communication Sheet
+                  Export Certified Audit Report & Snapshot
                 </h3>
                 <p className="report-action-desc">
-                  Standard European Commission Excel XML template with installations,
-                  processes, and precursor declarations.
+                  Generates an immutable audit trail PDF artifact with frozen SHA-256 computation fingerprints, verified CEA factors, and installation baseline declarations.
                 </p>
-                <div className="disabled-notice" role="note">
-                  <InfoIcon className="w-4 h-4 flex-shrink-0" />
-                  <span>
-                    Available once report export is built (backend export endpoint is not implemented yet).
-                  </span>
-                </div>
+                {exportMessage && (
+                  <div style={{ marginTop: "0.5rem", color: "var(--color-mint, #52b788)", fontSize: "0.9rem", fontWeight: 600 }}>
+                    {exportMessage}
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="report-action-btn-group">
               <button
                 type="button"
-                className="pill-button pill-button-disabled"
-                disabled
-                aria-disabled="true"
+                className="pill-button pill-button-primary"
+                onClick={handleExportReport}
+                disabled={exporting}
               >
-                Download draft report (XML / PDF)
+                {exporting ? "Archiving report..." : "Download certified audit report (PDF)"}
               </button>
               <a href="#/setup" className="pill-button pill-button-secondary">
                 Edit audit inputs

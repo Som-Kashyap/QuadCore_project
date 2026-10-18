@@ -1,19 +1,38 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { LogoMark } from "./Icons";
+import { isAuthenticated, logoutUser, getCurrentUser } from "../api";
 
 export default function Navbar({ currentRoute }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [user, setUser] = useState(null);
+  const authed = isAuthenticated();
+
+  useEffect(() => {
+    if (authed) {
+      getCurrentUser()
+        .then((u) => setUser(u))
+        .catch(() => setUser(null));
+    } else {
+      setUser(null);
+    }
+  }, [authed, currentRoute]);
+
+  function handleLogout() {
+    logoutUser();
+    window.location.hash = "#/";
+    window.location.reload();
+  }
 
   return (
     <header className="site-header">
       <div className="site-header-inner">
-        <a href="#/" className="brand-link" aria-label="CarbonLedger Home">
+        <a href="#/" className="brand-link" aria-label="QuadCore CarbonLedger Home">
           <span className="brand-icon-box">
             <LogoMark className="brand-svg" />
           </span>
           <span className="brand-text-group">
             <span className="brand-title">CarbonLedger</span>
-            <span className="brand-badge">CBAM Steel</span>
+            <span className="brand-badge">India Steel</span>
           </span>
         </a>
 
@@ -45,14 +64,30 @@ export default function Navbar({ currentRoute }) {
             href="#/results"
             className={`nav-link ${currentRoute === "#/results" ? "active" : ""}`}
           >
-            Sample result
+            Audit results
           </a>
         </nav>
 
         <div className="header-actions">
-          <a href="#/setup" className="pill-button pill-button-primary">
-            Start your audit
-          </a>
+          {authed ? (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <span style={{ fontSize: "0.85rem", color: "var(--color-cream, #e4e2dd)" }}>
+                {user?.full_name || user?.email || "Authenticated"}
+              </span>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="pill-button pill-button-secondary"
+                style={{ padding: "0.4rem 0.9rem", fontSize: "0.85rem" }}
+              >
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <a href="#/setup" className="pill-button pill-button-primary">
+              Sign in / Start audit
+            </a>
+          )}
 
           {/* Mobile hamburger */}
           <button
@@ -90,15 +125,28 @@ export default function Navbar({ currentRoute }) {
             className={`mobile-nav-link ${currentRoute === "#/results" ? "active" : ""}`}
             onClick={() => setMobileMenuOpen(false)}
           >
-            Sample result
+            Audit results
           </a>
-          <a
-            href="#/setup"
-            className="pill-button pill-button-primary mobile-audit-btn"
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            Start your audit
-          </a>
+          {authed ? (
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                handleLogout();
+              }}
+              className="pill-button pill-button-secondary mobile-audit-btn"
+            >
+              Sign out
+            </button>
+          ) : (
+            <a
+              href="#/setup"
+              className="pill-button pill-button-primary mobile-audit-btn"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              Sign in / Start audit
+            </a>
+          )}
         </nav>
       )}
     </header>
