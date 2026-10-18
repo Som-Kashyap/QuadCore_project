@@ -8,14 +8,22 @@ export default function Navbar({ currentRoute }) {
   const authed = isAuthenticated();
 
   useEffect(() => {
+    let isMounted = true;
     if (authed) {
       getCurrentUser()
-        .then((u) => setUser(u))
-        .catch(() => setUser(null));
-    } else {
-      setUser(null);
+        .then((u) => {
+          if (isMounted) setUser(u);
+        })
+        .catch(() => {
+          if (isMounted) setUser(null);
+        });
     }
+    return () => {
+      isMounted = false;
+    };
   }, [authed, currentRoute]);
+
+  const displayUser = authed ? user : null;
 
   function handleLogout() {
     logoutUser();
@@ -71,8 +79,8 @@ export default function Navbar({ currentRoute }) {
         <div className="header-actions">
           {authed ? (
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-              <span style={{ fontSize: "0.85rem", color: "var(--color-cream, #e4e2dd)" }}>
-                {user?.full_name || user?.email || "Authenticated"}
+              <span style={{ fontSize: "0.85rem", color: "var(--forest-900)", fontWeight: 600 }}>
+                {displayUser?.full_name || displayUser?.email || "Authenticated"}
               </span>
               <button
                 type="button"

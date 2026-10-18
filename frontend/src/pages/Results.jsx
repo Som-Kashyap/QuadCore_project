@@ -1,6 +1,5 @@
-import { useState, useId, useEffect } from "react";
+import { useState, useId } from "react";
 import {
-  InfoIcon,
   CheckIcon,
   ReportIcon,
   SparklesIcon,
@@ -9,16 +8,9 @@ import { getCalculationResult, exportReport } from "../api";
 
 export default function Results() {
   const sliderId = useId();
-  const [storedData, setStoredData] = useState(null);
+  const [storedData] = useState(() => getCalculationResult());
   const [exportMessage, setExportMessage] = useState("");
   const [exporting, setExporting] = useState(false);
-
-  useEffect(() => {
-    const calc = getCalculationResult();
-    if (calc) {
-      setStoredData(calc);
-    }
-  }, []);
 
   // State for What-if slider: Renewable electricity share percentage (0% to 100%)
   const [renewableShare, setRenewableShare] = useState(0);

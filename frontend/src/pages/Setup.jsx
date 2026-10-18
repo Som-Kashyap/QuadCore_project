@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   FactoryIcon,
   DocumentIcon,
@@ -63,10 +63,6 @@ export default function Setup() {
   const [factorStatus, setFactorStatus] = useState("not_synced");
   const [calculationStatus, setCalculationStatus] = useState("not_calculated");
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    setAuthed(isAuthenticated());
-  }, []);
 
   function setFeedback(msg, type = "info") {
     setMessage(msg);

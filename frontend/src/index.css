@@ -126,3 +126,27 @@ button, input, select, textarea {
     scroll-behavior: auto !important;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Icon Sizing, Display, and Color Utilities
+   -------------------------------------------------------------------------- */
+.w-3\.5 { width: 0.875rem; }
+.h-3\.5 { height: 0.875rem; }
+.w-4 { width: 1rem; }
+.h-4 { height: 1rem; }
+.w-5 { width: 1.25rem; }
+.h-5 { height: 1.25rem; }
+.w-6 { width: 1.5rem; }
+.h-6 { height: 1.5rem; }
+.w-8 { width: 2rem; }
+.h-8 { height: 2rem; }
+.w-10 { width: 2.5rem; }
+.h-10 { height: 2.5rem; }
+.flex-shrink-0 { flex-shrink: 0; }
+.text-forest { color: var(--forest-900); }
+.text-green { color: var(--green-500); }
+.inline { display: inline-block; vertical-align: middle; }
+.mr-1 { margin-right: 0.25rem; }
+.step-item-icon { width: 1rem; height: 1rem; flex-shrink: 0; }
+.dropzone-icon { width: 2.5rem; height: 2.5rem; flex-shrink: 0; }
+

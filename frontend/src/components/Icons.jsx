@@ -2,6 +2,8 @@ export function LogoMark({ className = "w-6 h-6" }) {
   return (
     <svg
       className={className}
+      width="24"
+      height="24"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -20,6 +22,8 @@ export function FactoryIcon({ className = "w-5 h-5" }) {
   return (
     <svg
       className={className}
+      width="24"
+      height="24"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -40,6 +44,8 @@ export function DocumentIcon({ className = "w-5 h-5" }) {
   return (
     <svg
       className={className}
+      width="24"
+      height="24"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -61,6 +67,8 @@ export function VerifyCheckIcon({ className = "w-5 h-5" }) {
   return (
     <svg
       className={className}
+      width="24"
+      height="24"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -79,6 +87,8 @@ export function SyncIcon({ className = "w-5 h-5" }) {
   return (
     <svg
       className={className}
+      width="24"
+      height="24"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -99,6 +109,8 @@ export function CalculatorIcon({ className = "w-5 h-5" }) {
   return (
     <svg
       className={className}
+      width="24"
+      height="24"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -125,6 +137,8 @@ export function ReportIcon({ className = "w-5 h-5" }) {
   return (
     <svg
       className={className}
+      width="24"
+      height="24"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -144,6 +158,8 @@ export function ArrowRightIcon({ className = "w-4 h-4" }) {
   return (
     <svg
       className={className}
+      width="24"
+      height="24"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -162,6 +178,8 @@ export function CheckIcon({ className = "w-4 h-4" }) {
   return (
     <svg
       className={className}
+      width="24"
+      height="24"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -179,6 +197,8 @@ export function InfoIcon({ className = "w-4 h-4" }) {
   return (
     <svg
       className={className}
+      width="24"
+      height="24"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -198,6 +218,8 @@ export function UploadIcon({ className = "w-5 h-5" }) {
   return (
     <svg
       className={className}
+      width="24"
+      height="24"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -217,6 +239,8 @@ export function SparklesIcon({ className = "w-5 h-5" }) {
   return (
     <svg
       className={className}
+      width="24"
+      height="24"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

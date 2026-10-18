@@ -1,4 +1,6 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://caucasian-bleak-recede.ngrok-free.dev";
+const API_BASE = (
+  import.meta.env.VITE_API_BASE_URL || "https://quadcore-project.onrender.com"
+).replace(/\/+$/, "");
 
 // -----------------------------------------------------------------------------
 // Session & Token Storage
@@ -59,12 +61,9 @@ export function getCalculationResult() {
 // Core Request Handler
 // -----------------------------------------------------------------------------
 
-export async function apiRequest(path, options = {}) {
+export async function apiRequest(path, options = {}, isRetry = false) {
   const token = getAccessToken();
   const headers = new Headers(options.headers || {});
-
-  // Bypass ngrok free tier browser warning interstitial
-  headers.set("ngrok-skip-browser-warning", "true");
 
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
@@ -80,6 +79,23 @@ export async function apiRequest(path, options = {}) {
     headers,
   });
 
+  // Handle expired sessions with silent token refresh once
+  if (
+    response.status === 401 &&
+    !isRetry &&
+    !path.startsWith("/api/auth/login") &&
+    !path.startsWith("/api/auth/register") &&
+    !path.startsWith("/api/auth/refresh") &&
+    getRefreshToken()
+  ) {
+    try {
+      await refreshUserTokens();
+      return apiRequest(path, options, true);
+    } catch {
+      clearSession();
+    }
+  }
+
   if (response.status === 204) return null;
 
   const data = await response.json().catch(() => null);
@@ -87,7 +103,7 @@ export async function apiRequest(path, options = {}) {
   if (!response.ok) {
     const detail = data?.detail;
     const message = Array.isArray(detail)
-      ? detail.map((e) => e.msg).join(", ")
+      ? detail.map((e) => e.msg || e.message || JSON.stringify(e)).join(", ")
       : typeof detail === "string"
         ? detail
         : `Request failed (${response.status})`;
@@ -167,12 +183,14 @@ export function createFactory(factory) {
       name: factory.name?.trim(),
       state: factory.state?.trim(),
       segment: factory.segment || "induction_furnace",
-      roof_area_sqm: factory.roof_area_sqm
-        ? Number(factory.roof_area_sqm)
-        : null,
-      contracted_demand_mva: factory.contracted_demand_mva
-        ? Number(factory.contracted_demand_mva)
-        : null,
+      roof_area_sqm:
+        factory.roof_area_sqm && Number(factory.roof_area_sqm) > 0
+          ? Number(factory.roof_area_sqm)
+          : null,
+      contracted_demand_mva:
+        factory.contracted_demand_mva && Number(factory.contracted_demand_mva) > 0
+          ? Number(factory.contracted_demand_mva)
+          : null,
       tariff_category: factory.tariff_category?.trim() || null,
       registration_identifier: factory.registration_identifier?.trim() || null,
     }),
@@ -198,9 +216,10 @@ export function createReportingPeriod(periodData) {
       firm_id: periodData.firm_id,
       start_date: periodData.start_date,
       end_date: periodData.end_date,
-      production_tonnes: periodData.production_tonnes
-        ? Number(periodData.production_tonnes)
-        : null,
+      production_tonnes:
+        periodData.production_tonnes && Number(periodData.production_tonnes) > 0
+          ? Number(periodData.production_tonnes)
+          : null,
     }),
   });
 }
@@ -221,13 +240,12 @@ export function getReportingPeriodById(periodId) {
 export function uploadDocument(file, reportingPeriodId, category = "electricity_bill") {
   const formData = new FormData();
   formData.append("file", file);
-  return apiRequest(
-    `/api/documents/upload?reporting_period_id=${reportingPeriodId}&category=${category}`,
-    {
-      method: "POST",
-      body: formData,
-    }
-  );
+  formData.append("reporting_period_id", String(reportingPeriodId));
+  formData.append("category", category);
+  return apiRequest("/api/documents/upload", {
+    method: "POST",
+    body: formData,
+  });
 }
 
 export function listDocumentsForPeriod(periodId) {
@@ -241,7 +259,23 @@ export function listDocumentsForPeriod(periodId) {
 export function createElectricityRecord(data) {
   return apiRequest("/api/activity/electricity/", {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      reporting_period_id: Number(data.reporting_period_id),
+      consumed_kwh: Number(data.consumed_kwh),
+      source_document_id: data.source_document_id || null,
+      peak_demand_kva:
+        data.peak_demand_kva && Number(data.peak_demand_kva) > 0
+          ? Number(data.peak_demand_kva)
+          : null,
+      power_factor:
+        data.power_factor !== undefined && data.power_factor !== null
+          ? Number(data.power_factor)
+          : null,
+      total_billed_inr:
+        data.total_billed_inr !== undefined && data.total_billed_inr !== null
+          ? Number(data.total_billed_inr)
+          : null,
+    }),
   });
 }
 
