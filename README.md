@@ -407,4 +407,5 @@ python -m pytest tests/test_calculate_endpoint.py -v
 - Anshu Kashyap 
 - Som Kashyap 
 - Kanishka Upadhyay 
-- Anushka Goel 
+- Anushka Goel
+##### Team QuadCore
