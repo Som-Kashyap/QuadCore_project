@@ -15,7 +15,7 @@ load_dotenv()
 settings = get_settings()
 
 engine = create_async_engine(
-    os.getenv("DATABASE_URL"),
+    settings.ASYNC_DATABASE_URL,
     # echo true so that we can see the sql queries we the app runs
     echo=True
 )
