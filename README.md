@@ -10,12 +10,13 @@
 ![Pydantic](https://img.shields.io/badge/Pydantic-Validation-E92063?logo=pydantic&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-4169E1?logo=postgresql&logoColor=white)
 ![Pytest](https://img.shields.io/badge/Tests-Pytest-0A9EDC?logo=pytest&logoColor=white)
+![TinyFish](https://img.shields.io/badge/Live%20data-TinyFish-0F9B8E)
 
 ![Engine tests](https://img.shields.io/badge/engine%20tests-9%20passed-brightgreen)
 ![Endpoint tests](https://img.shields.io/badge/endpoint%20tests-2%20passed-brightgreen)
 ![Factors](https://img.shields.io/badge/emission%20factors-placeholders-orange)
 
-[Overview](#-01--overview) · [Architecture](#-03--system-architecture) · [Methodology](#-07--calculation-methodology) · [API](#-09--api-integration) · [Testing](#-11--testing) · [Roadmap](#-13--limitations--future-improvements)
+[Overview](#-01--overview) · [Architecture](#-03--system-architecture) · [Methodology](#-07--calculation-methodology) · [API](#-09--api-integration) · [Testing](#-11--testing) · [TinyFish](#-14--live-data-with-tinyfish) · [Roadmap](#-13--limitations--future-improvements)
 
 </div>
 
@@ -34,7 +35,7 @@
 | 04 | [End-to-End Workflow](#-04--end-to-end-workflow) | 11 | [Testing](#-11--testing) |
 | 05 | [Technology Stack](#-05--technology-stack) | 12 | [Current Implementation Status](#-12--current-implementation-status) |
 | 06 | [Project Structure](#-06--project-structure) | 13 | [Limitations & Future Improvements](#-13--limitations--future-improvements) |
-| 07 | [Calculation Methodology](#-07--calculation-methodology) | | |
+| 07 | [Calculation Methodology](#-07--calculation-methodology) | 14 | [Live Data with TinyFish](#-14--live-data-with-tinyfish) |
 
 ---
 
@@ -157,6 +158,7 @@ flowchart TD
 | ✔️ **Pydantic** | Request/response data validation |
 | 🧪 **Pytest** | Automated testing |
 | 🐘 **PostgreSQL** | Application database, as configured by the project |
+| 🐟 **TinyFish** | Live web data (Search + Fetch) for emission factors, tariffs and policies, see [section 14](#-14--live-data-with-tinyfish) |
 
 ---
 
@@ -393,6 +395,58 @@ python -m pytest tests/test_calculate_endpoint.py -v
 
 ---
 
+## 🌐 14 · Live Data with TinyFish
+
+*Keeping emission factors and tariffs current instead of hard-coded.*
+
+To ensure our carbon footprint calculations and renewable pathways are based on the latest real-world data, the application integrates **[TinyFish](https://www.tinyfish.ai/)**, a web agent platform that gives the app structured access to the live web.
+
+Relying purely on static, hard-coded emission factors or tariffs quickly leads to outdated calculations. TinyFish lets us dynamically retrieve the most current compliance rules, grid emission factors and local utility tariffs, without building complex, fragile web scrapers.
+
+### 🔧 How We Use the TinyFish APIs
+
+TinyFish provides several endpoints (Search, Fetch, Agent and Browser). The application primarily uses the **Search** and **Fetch** endpoints, which work together to find and extract clean data.
+
+```mermaid
+flowchart LR
+    A[Need an external value] --> B[TinyFish Search]
+    B --> C[Ranked URLs and snippets]
+    C --> D[TinyFish Fetch]
+    D --> E[Clean Markdown]
+    E --> F[LLM extracts exact figures]
+    F --> G[(Cache in database)]
+    G --> H[Calculation and results dashboard]
+```
+
+| # | Endpoint | Role |
+|---|----------|------|
+| 1 | **TinyFish Search** | Finds the right URLs when there is no direct link, for example a supplier's published sustainability report or a state's latest open-access renewable policy. Returns structured JSON with ranked URLs and snippets. |
+| 2 | **TinyFish Fetch** | Takes the target URLs, renders the page (including JavaScript-heavy sites), strips out cookie banners and navigation, and returns clean Markdown. This text is passed to our LLM to extract the exact numerical figures. |
+
+### 🎯 Core Use Cases
+
+Every time the app fetches external evidence, it stores the **value together with its source URL, a timestamp and the factor version**, to maintain strict traceability.
+
+| Use case | What is retrieved |
+|---|---|
+| ⚡ **Grid Emission Factors** | The latest Central Electricity Authority (CEA) grid baseline emission factors |
+| 💰 **State Electricity Tariffs** | Current industrial tariff rates for the user's state, to calculate the financial impact of shifting to renewables |
+| ☀️ **Solar Yield Data** | Local solar irradiance data (for example kWh/kWp for the Delhi region) to compute realistic rooftop solar generation capacity |
+| 📜 **Renewable Policies** | State-specific rules for open-access or group captive power eligibility, which often depends on contracted demand |
+| 🏭 **Supplier Emissions (Precursors)** | Published Scope 1/2 emission data of sponge iron and ferroalloy suppliers, found with Search + Fetch |
+
+### 🗄️ Caching and Fallbacks
+
+The app does not strictly depend on live web fetching for every calculation. Every value retrieved via TinyFish is **cached in the database**.
+
+- ⚡ **Fast loading:** if a recent, valid value exists in the cache, the app uses it immediately.
+- 🛟 **Resilience:** if the live fetch fails (for example, a target website is down), the app falls back to the most recent cached factor and flags its timestamp on the results dashboard.
+
+> [!NOTE]
+> In the current frontend prototype, the "Sync live factor" button on the setup screen is not yet connected to the backend, so no live emission factor is retrieved from the UI yet. Until verified factors are plugged in, the engine's `DEFAULT_EMISSION_FACTORS` remain placeholders (see the warning at the top).
+
+---
+
 <div align="center">
 
 **⚠️ Disclaimer:** This component's current emission-factor values are placeholders. Results generated with them are suitable only for testing calculation behaviour and must not be treated as verified emissions figures for external reporting.
@@ -400,12 +454,3 @@ python -m pytest tests/test_calculate_endpoint.py -v
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:1b5e20,100:0f9b8e&height=120&section=footer" alt="footer wave" width="100%"/>
 
 </div>
-
----
-
-### Developers
-- Anshu Kashyap 
-- Som Kashyap 
-- Kanishka Upadhyay 
-- Anushka Goel
-##### Team QuadCore
