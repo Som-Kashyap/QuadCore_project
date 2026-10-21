@@ -13,12 +13,18 @@ export function saveTokens(data) {
   if (data?.refresh_token) {
     sessionStorage.setItem("refresh_token", data.refresh_token);
   }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("auth-changed"));
+  }
 }
 
 export function clearSession() {
   sessionStorage.removeItem("access_token");
   sessionStorage.removeItem("refresh_token");
   sessionStorage.removeItem("calculation_result");
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("auth-changed"));
+  }
 }
 
 function saveSession(data) {
@@ -28,6 +34,9 @@ function saveSession(data) {
   sessionStorage.setItem("access_token", data.access_token);
   if (data.refresh_token) {
     sessionStorage.setItem("refresh_token", data.refresh_token);
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("auth-changed"));
   }
 }
 
@@ -106,7 +115,9 @@ export async function apiRequest(path, options = {}, isRetry = false) {
       ? detail.map((e) => e.msg || e.message || JSON.stringify(e)).join(", ")
       : typeof detail === "string"
         ? detail
-        : `Request failed (${response.status})`;
+        : response.status === 404
+          ? `Server endpoint not found (404) at ${API_BASE}. Please verify backend configuration.`
+          : `Request failed (${response.status})`;
 
     throw new Error(message);
   }

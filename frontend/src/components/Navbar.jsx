@@ -5,7 +5,13 @@ import { isAuthenticated, logoutUser, getCurrentUser } from "../api";
 export default function Navbar({ currentRoute }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [user, setUser] = useState(null);
-  const authed = isAuthenticated();
+  const [authed, setAuthed] = useState(() => isAuthenticated());
+
+  useEffect(() => {
+    const handleAuthChange = () => setAuthed(isAuthenticated());
+    window.addEventListener("auth-changed", handleAuthChange);
+    return () => window.removeEventListener("auth-changed", handleAuthChange);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -17,6 +23,8 @@ export default function Navbar({ currentRoute }) {
         .catch(() => {
           if (isMounted) setUser(null);
         });
+    } else {
+      setUser(null);
     }
     return () => {
       isMounted = false;

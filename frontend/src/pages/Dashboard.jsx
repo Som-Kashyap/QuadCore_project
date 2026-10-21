@@ -296,11 +296,11 @@ export default function Dashboard() {
       <div className="setup-page">
         <div className="container" style={{ maxWidth: "560px", margin: "3rem auto" }}>
           <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
-            <span className="aside-tag">Authentication Required</span>
-            <h2 style={{ color: "var(--color-cream, #e4e2dd)", marginTop: "0.5rem" }}>
+            <span className="aside-tag" style={{ background: "#d9f2e3", color: "#14532d" }}>Authentication Required</span>
+            <h2 style={{ color: "#0b2e22", marginTop: "0.5rem" }}>
               Sign in to access Plant Dashboard
             </h2>
-            <p style={{ color: "var(--color-muted, #8b949e)", fontSize: "0.95rem" }}>
+            <p style={{ color: "#3f5a4e", fontSize: "0.95rem" }}>
               Plant emissions metrics, activity ledgers, and CBAM compliance certificates require an authenticated steelmaker account.
             </p>
           </div>
@@ -593,7 +593,7 @@ export default function Dashboard() {
             >
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                  <span className="aside-tag" style={{ margin: 0 }}>
+                  <span className="aside-tag" style={{ margin: 0, background: "#d9f2e3", color: "#14532d" }}>
                     Verified Plant Audit
                   </span>
                   <span style={{ fontSize: "0.8125rem", color: "var(--muted)", fontWeight: 500 }}>

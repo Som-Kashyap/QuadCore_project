@@ -721,11 +721,11 @@ export default function Setup() {
       <div className="setup-page">
         <div className="container" style={{ maxWidth: "600px", margin: "2rem auto" }}>
           <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
-            <span className="aside-tag">Authentication Required</span>
-            <h2 style={{ color: "var(--color-cream, #e4e2dd)", marginTop: "0.5rem" }}>
+            <span className="aside-tag" style={{ background: "#d9f2e3", color: "#14532d" }}>Authentication Required</span>
+            <h2 style={{ color: "#0b2e22", marginTop: "0.5rem" }}>
               Sign in to start your factory audit
             </h2>
-            <p style={{ color: "var(--color-muted, #8b949e)", fontSize: "0.95rem" }}>
+            <p style={{ color: "#3f5a4e", fontSize: "0.95rem" }}>
               QuadCore enforces tenant data isolation. Create an account or sign in to save your factory baseline, activity records, and audit reports.
             </p>
           </div>
